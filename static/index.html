@@ -4,96 +4,192 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TerraDetective AI — Earth System Trend Detective</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; background: #0b1020; color: #e8ecf4; }
-  h1 { color: #7dd3fc; } h2 { color: #a5b4fc; }
-  .card { background: #141b33; border-radius: 12px; padding: 1.2rem; margin: 1rem 0; border: 1px solid #2b3664; }
-  input, button { font-size: 1rem; padding: .6rem; border-radius: 8px; border: 1px solid #334; }
-  input { background: #0f1530; color: #fff; width: 90px; margin-right: .4rem; }
-  input.wide { width: 220px; }
-  button { background: #2563eb; color: #fff; border: none; cursor: pointer; margin-top: .6rem; }
-  button:disabled { opacity: .5; }
-  pre { white-space: pre-wrap; background: #0f1530; padding: 1rem; border-radius: 8px; }
-  canvas { width: 100%; background: #0f1530; border-radius: 8px; }
-  .meta { color: #94a3b8; font-size: .85rem; }
-  .preset { background:#1e293b; border:1px solid #334155; color:#e2e8f0; margin:.2rem; cursor:pointer; border-radius:20px; padding:.35rem .8rem; font-size:.85rem;}
+:root{
+  --bg:#04060e; --panel:rgba(255,255,255,.035); --panel2:rgba(255,255,255,.06);
+  --line:rgba(255,255,255,.09); --txt:#eef2ff; --dim:#93a0bd; --faint:#5b6484;
+  --ind:#6366f1; --pnk:#f472b6; --cy:#7dd3fc; --grad:linear-gradient(135deg,#6366f1,#f472b6);
+  --r:18px;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:'Inter',system-ui,sans-serif;color:var(--txt);min-height:100vh;
+  background:
+    radial-gradient(1100px 560px at 12% -5%, rgba(99,102,241,.16), transparent 60%),
+    radial-gradient(900px 520px at 92% 8%, rgba(244,114,182,.10), transparent 60%),
+    radial-gradient(700px 700px at 50% 110%, rgba(125,211,252,.06), transparent 60%),
+    var(--bg);}
+h1,h2,h3,.sg{font-family:'Space Grotesk',sans-serif}
+.wrap{max-width:1080px;margin:0 auto;padding:24px 20px 48px}
+/* header */
+.top{display:flex;align-items:center;gap:16px;padding:20px 24px;border:1px solid var(--line);border-radius:22px;
+  background:var(--panel);backdrop-filter:blur(14px);animation:rise .6s ease both}
+.logo{width:54px;height:54px;border-radius:17px;background:var(--grad);display:grid;place-items:center;flex:none;
+  box-shadow:0 8px 32px rgba(99,102,241,.4)}
+.logo svg{width:28px;height:28px}
+.top h1{margin:0;font-size:23px}.top h1 span{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.top p{margin:5px 0 0;color:var(--dim);font-size:13px}
+.badge{margin-left:auto;flex:none;font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;
+  padding:8px 15px;border-radius:999px;background:rgba(99,102,241,.13);border:1px solid rgba(99,102,241,.4);color:#c7d2fe}
+/* dossier card */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:22px 24px;margin-top:16px;
+  animation:rise .6s .08s ease both}
+.card h2{margin:0 0 14px;font-size:15px;letter-spacing:.5px;text-transform:uppercase;color:var(--dim)}
+.card h2 .n{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:9px;background:var(--grad);
+  color:#fff;font-size:13px;margin-right:9px;vertical-align:1px}
+.presets{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.preset{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:999px;padding:9px 17px;
+  font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;transition:.2s}
+.preset:hover{border-color:var(--pnk);transform:translateY(-1px)}
+.preset.on{background:var(--grad);border-color:transparent;color:#fff}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:640px){.grid2{grid-template-columns:1fr}}
+.fld{position:relative}
+.fld label{position:absolute;top:-8px;left:12px;font-size:10px;font-weight:700;letter-spacing:.5px;background:#0a0f1e;
+  padding:0 6px;color:var(--faint);text-transform:uppercase}
+.fld input{width:100%;background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:12px;color:var(--txt);
+  padding:12px 14px;font-size:14px;font-family:inherit;outline:none;transition:.2s}
+.fld input:focus{border-color:var(--ind);box-shadow:0 0 0 3px rgba(99,102,241,.18)}
+.coords{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.btn{background:var(--grad);border:none;color:#fff;font-weight:700;font-size:15px;padding:14px 34px;border-radius:14px;
+  cursor:pointer;font-family:'Space Grotesk';letter-spacing:.3px;transition:.2s;box-shadow:0 8px 28px rgba(99,102,241,.4);margin-top:14px}
+.btn:hover{transform:translateY(-1px)}.btn:disabled{opacity:.55;cursor:wait;transform:none}
+/* results */
+#results{display:none;margin-top:16px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;animation:pop .4s ease both}
+.stat .v{font-family:'Space Grotesk';font-size:25px;font-weight:700}
+.stat .l{font-size:11.5px;color:var(--dim);margin-top:4px;letter-spacing:.3px}
+.stat.up .v{color:#f87171}.stat.dn .v{color:#34d399}.stat.neu .v{color:var(--cy)}
+canvas#chart{width:100%;height:230px;display:block}
+.legend{display:flex;gap:18px;margin-top:10px;font-size:12px;color:var(--dim);flex-wrap:wrap}
+.legend i{display:inline-block;width:22px;height:3px;border-radius:2px;vertical-align:middle;margin-right:6px}
+.dossier{background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:16px;padding:22px 24px;position:relative}
+.dossier::before{content:'CASE FILE';position:absolute;top:-11px;left:22px;font-size:10px;font-weight:800;letter-spacing:2px;
+  background:#101736;padding:3px 12px;border-radius:6px;color:var(--pnk);border:1px solid rgba(244,114,182,.4)}
+.dossier pre{white-space:pre-wrap;font-family:'Inter',sans-serif;font-size:14.5px;line-height:1.75;margin:6px 0 0;color:#dbe3f5}
+.prov{display:inline-block;margin-top:12px;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;
+  padding:5px 12px;border-radius:999px;background:rgba(125,211,252,.1);border:1px solid rgba(125,211,252,.35);color:#bae6fd}
+.meta{font-size:11.5px;color:var(--faint);margin-top:14px;line-height:1.7}
+/* loading */
+.loading{border-radius:22px;padding:64px 20px;text-align:center;color:var(--dim);border:1px dashed var(--line);margin-top:16px}
+.spinner{width:46px;height:46px;border:3px solid rgba(99,102,241,.2);border-top-color:var(--ind);border-radius:50%;margin:0 auto 16px;animation:sp .8s linear infinite}
+.steps{font-size:13px;margin-top:8px;color:var(--faint)}
+#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:#1e293b;
+  border:1px solid #f87171;color:#fecaca;padding:12px 20px;border-radius:14px;font-size:13.5px;opacity:0;
+  pointer-events:none;transition:.3s;z-index:99;max-width:92vw}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes pop{from{opacity:0;transform:scale(.985)}to{opacity:1;transform:none}}
+@keyframes sp{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
-<h1>🛰️ TerraDetective AI</h1>
-<p class="meta">NASA Space Apps Challenge 2026 · "Be an Earth System Trend Detective" · Data: NASA POWER (MERRA-2), live</p>
-
-<div class="card">
-  <h2>1. Pick a location</h2>
-  <div>
-    <button class="preset" data-lat="24.86" data-lon="67.01" data-name="Karachi, Pakistan">Karachi</button>
-    <button class="preset" data-lat="25.2" data-lon="69.5" data-name="Thar Desert, Pakistan">Thar Desert</button>
-    <button class="preset" data-lat="-23.86" data-lon="-69.13" data-name="Atacama Desert, Chile">Atacama</button>
-    <button class="preset" data-lat="40.71" data-lon="-74.0" data-name="New York, USA">New York</button>
-    <button class="preset" data-lat="51.5" data-lon="-0.12" data-name="London, UK">London</button>
+<div class="wrap">
+  <div class="top">
+    <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2a15 15 0 019 4M12 2a15 15 0 00-9 4M12 22a15 15 0 009-4M12 22a15 15 0 01-9-4M2 12h3M19 12h3"/></svg></div>
+    <div><h1>TerraDetective <span>AI</span></h1>
+      <p>NASA Space Apps Challenge 2026 · “Be an Earth System Trend Detective” · 40 years of real NASA POWER (MERRA-2) satellite data, decoded.</p></div>
+    <div class="badge">🛰 live NASA data</div>
   </div>
-  <p>
-    <input id="place" class="wide" value="Karachi, Pakistan">
-    <input id="lat" type="number" step="0.01" value="24.86"> lat
-    <input id="lon" type="number" step="0.01" value="67.01"> lon
-  </p>
-  <button id="go">🔍 Investigate 40 years of climate data</button>
-  <span id="loading" style="display:none"> ⏳ querying NASA…</span>
-</div>
 
-<div class="card" id="results" style="display:none">
-  <h2>2. The evidence</h2>
-  <canvas id="chart" height="220"></canvas>
-  <p class="meta" id="trendline"></p>
-  <h2>3. Detective report</h2>
-  <pre id="report"></pre>
-  <p class="meta" id="prov"></p>
+  <div class="card">
+    <h2><span class="n">1</span>Open a case — pick a location</h2>
+    <div class="presets" id="presets"></div>
+    <div class="grid2">
+      <div class="fld"><label>Place name</label><input id="place" value="Karachi, Pakistan"></div>
+      <div class="coords">
+        <div class="fld"><label>Latitude</label><input id="lat" type="number" step="0.01" value="24.86"></div>
+        <div class="fld"><label>Longitude</label><input id="lon" type="number" step="0.01" value="67.01"></div>
+      </div>
+    </div>
+    <button class="btn" id="go" onclick="investigate()">🔍 Investigate 40 years</button>
+  </div>
+
+  <div id="stage"></div>
 </div>
+<div id="toast"></div>
 
 <script>
-const $ = id => document.getElementById(id);
-document.querySelectorAll('.preset').forEach(b => b.onclick = () => {
-  $('place').value = b.dataset.name; $('lat').value = b.dataset.lat; $('lon').value = b.dataset.lon;
-});
-function drawChart(years, vals, trend) {
-  const c = $('chart'), ctx = c.getContext('2d');
-  const W = c.width = c.offsetWidth * 2, H = c.height = 440;
-  const min = Math.min(...vals), max = Math.max(...vals), pad = (max-min)*0.15 || 1;
-  const X = i => 40 + i * (W-60) / (vals.length-1);
-  const Y = v => H-40 - (v-(min-pad)) * (H-80) / ((max+pad)-(min-pad));
-  ctx.clearRect(0,0,W,H); ctx.strokeStyle='#475569'; ctx.lineWidth=2;
-  ctx.beginPath(); vals.forEach((v,i)=> i?ctx.lineTo(X(i),Y(v)):ctx.moveTo(X(i),Y(v))); ctx.stroke();
-  // trend line
-  const x0 = years[0], slope = trend.slope_per_year;
-  const y0 = vals[0]; // approx anchor via first fitted value
-  let sx=0, sy=0; years.forEach((yr,i)=>{sx+=yr-x0; sy+=vals[i];});
-  const n=years.length, mx=sx/n, my=sy/n;
-  let sxx=0,sxy=0; years.forEach((yr,i)=>{sxx+=(yr-x0-mx)**2; sxy+=(yr-x0-mx)*(vals[i]-my);});
-  const m=sxy/sxx, b=my-m*mx;
-  ctx.strokeStyle='#f472b6'; ctx.lineWidth=3; ctx.setLineDash([10,6]);
-  ctx.beginPath(); ctx.moveTo(X(0),Y(b)); ctx.lineTo(X(n-1),Y(m*(years[n-1]-x0)+b)); ctx.stroke(); ctx.setLineDash([]);
-  ctx.fillStyle='#94a3b8'; ctx.font='20px sans-serif';
-  ctx.fillText(years[0], 40, H-10); ctx.fillText(years[n-1], W-90, H-10);
-  ctx.fillText(max.toFixed(1)+'°C', 4, 30); ctx.fillText(min.toFixed(1)+'°C', 4, H-50);
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),4200);}
+
+const PRESETS=[
+  ['Karachi, Pakistan',24.86,67.01],['Thar Desert, Pakistan',25.2,69.5],
+  ['Atacama Desert, Chile',-23.86,-69.13],['New York, USA',40.71,-74.0],['London, UK',51.5,-0.12]];
+$('presets').innerHTML=PRESETS.map((p,i)=>`<button class="preset${i===0?' on':''}" onclick="pick(${i},this)">${p[0].split(',')[0]}</button>`).join('');
+function pick(i,el){const p=PRESETS[i];$('place').value=p[0];$('lat').value=p[1];$('lon').value=p[2];
+  document.querySelectorAll('.preset').forEach(x=>x.classList.remove('on'));el.classList.add('on');}
+
+function drawChart(years,vals,anoms){
+  const cv=$('chart'),dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=230;
+  cv.width=W*dpr;cv.height=H*dpr;const x=cv.getContext('2d');x.scale(dpr,dpr);
+  const min=Math.min(...vals),max=Math.max(...vals),pad=(max-min)*.18||1;
+  const X=i=>46+i*(W-60)/(vals.length-1),Y=v=>H-34-(v-(min-pad))*(H-64)/((max+pad)-(min-pad));
+  // area
+  const g=x.createLinearGradient(0,0,0,H);g.addColorStop(0,'rgba(99,102,241,.32)');g.addColorStop(1,'rgba(99,102,241,0)');
+  x.beginPath();vals.forEach((v,i)=>i?x.lineTo(X(i),Y(v)):x.moveTo(X(i),Y(v)));
+  x.lineTo(X(vals.length-1),H-24);x.lineTo(X(0),H-24);x.closePath();x.fillStyle=g;x.fill();
+  // series
+  x.beginPath();vals.forEach((v,i)=>i?x.lineTo(X(i),Y(v)):x.moveTo(X(i),Y(v)));
+  x.strokeStyle='#a5b4fc';x.lineWidth=2.2;x.lineJoin='round';x.stroke();
+  // least-squares trend
+  const n=years.length;let sx=0,sy=0;years.forEach((yr,i)=>{sx+=yr;sy+=vals[i];});
+  const mx=sx/n,my=sy/n;let sxx=0,sxy=0;years.forEach((yr,i)=>{sxx+=(yr-mx)**2;sxy+=(yr-mx)*(vals[i]-my);});
+  const m=sxy/(sxx||1),b=my-m*mx;
+  x.strokeStyle='#f472b6';x.lineWidth=2.6;x.setLineDash([9,6]);x.beginPath();
+  x.moveTo(X(0),Y(m*years[0]+b));x.lineTo(X(n-1),Y(m*years[n-1]+b));x.stroke();x.setLineDash([]);
+  // anomalies
+  const amap={};(anoms||[]).forEach(a=>{amap[a.year]=a;});
+  years.forEach((yr,i)=>{if(amap[yr]){x.beginPath();x.arc(X(i),Y(vals[i]),5,0,7);
+    x.fillStyle='#fbbf24';x.fill();x.strokeStyle='#04060e';x.lineWidth=2;x.stroke();}});
+  x.fillStyle='#5b6484';x.font='11px Inter';
+  x.fillText(years[0],46,H-8);x.fillText(years[n-1],W-44,H-8);
+  x.fillText(max.toFixed(1)+'°C',2,16);x.fillText(min.toFixed(1)+'°C',2,H-40);
 }
-$('go').onclick = async () => {
-  $('go').disabled = true; $('loading').style.display='inline'; $('results').style.display='none';
-  try {
-    const r = await fetch('/api/investigate', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({place:$('place').value, lat:parseFloat($('lat').value), lon:parseFloat($('lon').value)})});
-    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
-    const d = await r.json();
-    const yrs = Object.keys(d.temperature.annual_means_c).map(Number);
-    const vals = yrs.map(y => d.temperature.annual_means_c[y]);
-    drawChart(yrs, vals, d.temperature.trend);
-    const t = d.temperature.trend;
-    $('trendline').textContent = `Annual mean temperature ${yrs[0]}–${yrs[yrs.length-1]} · trend ${t.slope_per_decade>=0?'+':''}${t.slope_per_decade.toFixed(2)} °C/decade (R²=${t.r2.toFixed(2)}) · pink dashed = fitted trend`;
-    $('report').textContent = d.report.narrative;
-    $('prov').textContent = `Report provider: ${d.report.provider} · Source: ${d.data_source} · elevation ${d.elevation_m} m`;
-    $('results').style.display='block';
-  } catch(e) { alert('Error: ' + e.message); }
-  $('go').disabled = false; $('loading').style.display='none';
-};
+
+async function investigate(){
+  const place=$('place').value.trim(),lat=parseFloat($('lat').value),lon=parseFloat($('lon').value);
+  if(!place||isNaN(lat)||isNaN(lon)){toast('Enter a place name and valid coordinates.');return;}
+  const btn=$('go');btn.disabled=true;
+  $('stage').innerHTML=`<div class="loading"><div class="spinner"></div><b>Gathering satellite evidence…</b><div class="steps">querying NASA POWER · 40 years of monthly data · computing trend & anomalies</div></div>`;
+  try{
+    const r=await fetch('/api/investigate',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({place,lat,lon})});
+    if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||('server '+r.status));}
+    const d=await r.json();
+    const yrs=Object.keys(d.temperature.annual_means_c).map(Number).sort((a,b)=>a-b);
+    const vals=yrs.map(y=>d.temperature.annual_means_c[y]);
+    const t=d.temperature.trend,anoms=d.temperature.anomalies||[];
+    const per=t.slope_per_decade||0,cls=per>0.05?'up':per<-0.05?'dn':'neu';
+    const anomTxt=anoms.length?anoms.slice(0,6).map(a=>a.year).join(', ')+(anoms.length>6?` +${anoms.length-6} more`:''):'none detected';
+    $('stage').innerHTML=`<div id="results" style="display:block">
+      <div class="stats">
+        <div class="stat ${cls}" style="animation-delay:.02s"><div class="v">${per>=0?'+':''}${per.toFixed(2)}°</div><div class="l">warming per decade</div></div>
+        <div class="stat neu" style="animation-delay:.08s"><div class="v">${(t.r2??0).toFixed(2)}</div><div class="l">trend fit (R²)</div></div>
+        <div class="stat neu" style="animation-delay:.14s"><div class="v">${anoms.length}</div><div class="l">anomaly years flagged</div></div>
+        <div class="stat neu" style="animation-delay:.2s"><div class="v">${d.elevation_m??'—'}<span style="font-size:14px"> m</span></div><div class="l">elevation</div></div>
+      </div>
+      <div class="card" style="margin-top:0"><h2><span class="n">2</span>The evidence — annual mean temperature</h2>
+        <canvas id="chart"></canvas>
+        <div class="legend"><span><i style="background:#a5b4fc"></i>observed annual mean</span>
+        <span><i style="background:#f472b6"></i>fitted trend</span>
+        <span><i style="background:#fbbf24;border-radius:50%;width:10px;height:10px"></i>anomaly year</span></div>
+        <div class="meta">${esc(d.place)} · ${yrs[0]}–${yrs[yrs.length-1]} · anomalies: ${esc(anomTxt)}</div>
+      </div>
+      <div class="card"><h2><span class="n">3</span>Detective report</h2>
+        <div class="dossier"><pre>${esc(d.report.narrative)}</pre>
+        <div><span class="prov">narrated by ${esc(d.report.provider)}</span></div></div>
+        <div class="meta">Source: ${esc(d.data_source)} · elevation ${d.elevation_m??'—'} m · precipitation trend ${(d.precipitation.trend.slope_per_decade??0)>=0?'+':''}${(d.precipitation.trend.slope_per_decade??0).toFixed(3)} mm/day per decade</div>
+      </div></div>`;
+    drawChart(yrs,vals,anoms);
+    $('stage').scrollIntoView({behavior:'smooth'});
+  }catch(e){$('stage').innerHTML='';toast('Investigation failed: '+e.message);}
+  btn.disabled=false;
+}
 </script>
 </body>
 </html>
