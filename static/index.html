@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TerraDetective AI — Earth System Trend Detective</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; background: #0b1020; color: #e8ecf4; }
+  h1 { color: #7dd3fc; } h2 { color: #a5b4fc; }
+  .card { background: #141b33; border-radius: 12px; padding: 1.2rem; margin: 1rem 0; border: 1px solid #2b3664; }
+  input, button { font-size: 1rem; padding: .6rem; border-radius: 8px; border: 1px solid #334; }
+  input { background: #0f1530; color: #fff; width: 90px; margin-right: .4rem; }
+  input.wide { width: 220px; }
+  button { background: #2563eb; color: #fff; border: none; cursor: pointer; margin-top: .6rem; }
+  button:disabled { opacity: .5; }
+  pre { white-space: pre-wrap; background: #0f1530; padding: 1rem; border-radius: 8px; }
+  canvas { width: 100%; background: #0f1530; border-radius: 8px; }
+  .meta { color: #94a3b8; font-size: .85rem; }
+  .preset { background:#1e293b; border:1px solid #334155; color:#e2e8f0; margin:.2rem; cursor:pointer; border-radius:20px; padding:.35rem .8rem; font-size:.85rem;}
+</style>
+</head>
+<body>
+<h1>🛰️ TerraDetective AI</h1>
+<p class="meta">NASA Space Apps Challenge 2026 · "Be an Earth System Trend Detective" · Data: NASA POWER (MERRA-2), live</p>
+
+<div class="card">
+  <h2>1. Pick a location</h2>
+  <div>
+    <button class="preset" data-lat="24.86" data-lon="67.01" data-name="Karachi, Pakistan">Karachi</button>
+    <button class="preset" data-lat="25.2" data-lon="69.5" data-name="Thar Desert, Pakistan">Thar Desert</button>
+    <button class="preset" data-lat="-23.86" data-lon="-69.13" data-name="Atacama Desert, Chile">Atacama</button>
+    <button class="preset" data-lat="40.71" data-lon="-74.0" data-name="New York, USA">New York</button>
+    <button class="preset" data-lat="51.5" data-lon="-0.12" data-name="London, UK">London</button>
+  </div>
+  <p>
+    <input id="place" class="wide" value="Karachi, Pakistan">
+    <input id="lat" type="number" step="0.01" value="24.86"> lat
+    <input id="lon" type="number" step="0.01" value="67.01"> lon
+  </p>
+  <button id="go">🔍 Investigate 40 years of climate data</button>
+  <span id="loading" style="display:none"> ⏳ querying NASA…</span>
+</div>
+
+<div class="card" id="results" style="display:none">
+  <h2>2. The evidence</h2>
+  <canvas id="chart" height="220"></canvas>
+  <p class="meta" id="trendline"></p>
+  <h2>3. Detective report</h2>
+  <pre id="report"></pre>
+  <p class="meta" id="prov"></p>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+document.querySelectorAll('.preset').forEach(b => b.onclick = () => {
+  $('place').value = b.dataset.name; $('lat').value = b.dataset.lat; $('lon').value = b.dataset.lon;
+});
+function drawChart(years, vals, trend) {
+  const c = $('chart'), ctx = c.getContext('2d');
+  const W = c.width = c.offsetWidth * 2, H = c.height = 440;
+  const min = Math.min(...vals), max = Math.max(...vals), pad = (max-min)*0.15 || 1;
+  const X = i => 40 + i * (W-60) / (vals.length-1);
+  const Y = v => H-40 - (v-(min-pad)) * (H-80) / ((max+pad)-(min-pad));
+  ctx.clearRect(0,0,W,H); ctx.strokeStyle='#475569'; ctx.lineWidth=2;
+  ctx.beginPath(); vals.forEach((v,i)=> i?ctx.lineTo(X(i),Y(v)):ctx.moveTo(X(i),Y(v))); ctx.stroke();
+  // trend line
+  const x0 = years[0], slope = trend.slope_per_year;
+  const y0 = vals[0]; // approx anchor via first fitted value
+  let sx=0, sy=0; years.forEach((yr,i)=>{sx+=yr-x0; sy+=vals[i];});
+  const n=years.length, mx=sx/n, my=sy/n;
+  let sxx=0,sxy=0; years.forEach((yr,i)=>{sxx+=(yr-x0-mx)**2; sxy+=(yr-x0-mx)*(vals[i]-my);});
+  const m=sxy/sxx, b=my-m*mx;
+  ctx.strokeStyle='#f472b6'; ctx.lineWidth=3; ctx.setLineDash([10,6]);
+  ctx.beginPath(); ctx.moveTo(X(0),Y(b)); ctx.lineTo(X(n-1),Y(m*(years[n-1]-x0)+b)); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle='#94a3b8'; ctx.font='20px sans-serif';
+  ctx.fillText(years[0], 40, H-10); ctx.fillText(years[n-1], W-90, H-10);
+  ctx.fillText(max.toFixed(1)+'°C', 4, 30); ctx.fillText(min.toFixed(1)+'°C', 4, H-50);
+}
+$('go').onclick = async () => {
+  $('go').disabled = true; $('loading').style.display='inline'; $('results').style.display='none';
+  try {
+    const r = await fetch('/api/investigate', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({place:$('place').value, lat:parseFloat($('lat').value), lon:parseFloat($('lon').value)})});
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    const d = await r.json();
+    const yrs = Object.keys(d.temperature.annual_means_c).map(Number);
+    const vals = yrs.map(y => d.temperature.annual_means_c[y]);
+    drawChart(yrs, vals, d.temperature.trend);
+    const t = d.temperature.trend;
+    $('trendline').textContent = `Annual mean temperature ${yrs[0]}–${yrs[yrs.length-1]} · trend ${t.slope_per_decade>=0?'+':''}${t.slope_per_decade.toFixed(2)} °C/decade (R²=${t.r2.toFixed(2)}) · pink dashed = fitted trend`;
+    $('report').textContent = d.report.narrative;
+    $('prov').textContent = `Report provider: ${d.report.provider} · Source: ${d.data_source} · elevation ${d.elevation_m} m`;
+    $('results').style.display='block';
+  } catch(e) { alert('Error: ' + e.message); }
+  $('go').disabled = false; $('loading').style.display='none';
+};
+</script>
+</body>
+</html>
