@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .nasa_power import fetch_monthly, fetch_daily_tmax
+from .nasa_power import fetch_monthly, fetch_daily_tmax, cache_stats
 from .trend_ai import annual_means, linear_trend, detect_anomalies, build_report, AI_PROVIDER
 from .twin_cities import find_twin
 from . import free_llm
@@ -21,6 +21,21 @@ app = FastAPI(title="TerraDetective AI")
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
+
+
+def _round_trend(tr: dict) -> dict:
+    """Round trend stats for JSON; keeps CI lists and p-value readable."""
+    out = {}
+    for k, v in tr.items():
+        if k == "p_value" and isinstance(v, float):
+            out[k] = round(v, 6)
+        elif isinstance(v, float):
+            out[k] = round(v, 4)
+        elif isinstance(v, list):
+            out[k] = [round(x, 4) if isinstance(x, float) else x for x in v]
+        else:
+            out[k] = v
+    return out
 
 
 class InvestigateRequest(BaseModel):
@@ -38,8 +53,9 @@ def index():
 
 @app.get("/api/status")
 def status():
-    return {"service": "TerraDetective AI", "nasa_source": "POWER API (MERRA-2)",
-            "ai_provider": AI_PROVIDER, "nasa_key_required": False}
+    return {"service": "TerraDetective AI", "nasa_source": "POWER API (MERRA-2 reanalysis)",
+            "ai_provider": AI_PROVIDER, "nasa_key_required": False,
+            "cache": cache_stats()}
 
 
 @app.post("/api/investigate")
@@ -49,7 +65,7 @@ def investigate(req: InvestigateRequest):
     if req.end_year - req.start_year < 10:
         raise HTTPException(400, "Need at least 10 years of data for a trend.")
     try:
-        raw = fetch_monthly(req.lat, req.lon, req.start_year, req.end_year)
+        raw, cached = fetch_monthly(req.lat, req.lon, req.start_year, req.end_year)
     except Exception as e:
         raise HTTPException(502, f"NASA POWER API error: {e}")
     t_ann = annual_means(raw["t2m"])
@@ -62,15 +78,16 @@ def investigate(req: InvestigateRequest):
     return {
         "place": req.place, "lat": req.lat, "lon": req.lon,
         "elevation_m": raw["elevation_m"],
+        "cached": cached,
         "data_source": "NASA POWER (MERRA-2 reanalysis), real observations",
         "temperature": {
             "annual_means_c": {str(k): round(v, 2) for k, v in t_ann.items()},
-            "trend": {k: round(v, 4) if isinstance(v, float) else v for k, v in t_trend.items()},
+            "trend": _round_trend(t_trend),
             "anomalies": t_anom,
         },
         "precipitation": {
             "annual_means_mm_day": {str(k): round(v, 3) for k, v in p_ann.items()},
-            "trend": {k: round(v, 5) if isinstance(v, float) else v for k, v in p_trend.items()},
+            "trend": _round_trend(p_trend),
             "anomalies": p_anom,
         },
         "report": report,
@@ -115,7 +132,7 @@ def twin_city(req: TwinCityRequest):
     if not (-90 <= req.lat <= 90 and -180 <= req.lon <= 180):
         raise HTTPException(400, "lat must be -90..90, lon -180..180")
     try:
-        raw = fetch_monthly(req.lat, req.lon, req.start_year, req.end_year)
+        raw, cached = fetch_monthly(req.lat, req.lon, req.start_year, req.end_year)
     except Exception as e:
         raise HTTPException(502, f"NASA POWER API error: {e}")
     t_ann = annual_means(raw["t2m"])
@@ -126,6 +143,7 @@ def twin_city(req: TwinCityRequest):
     result = find_twin(req.place, last_year, t_ann[last_year],
                        t_trend["slope_per_year"])
     result["data_source"] = "NASA POWER (MERRA-2), real observations"
+    result["cached"] = cached
     return result
 
 
@@ -145,7 +163,7 @@ def normal_check(req: NormalCheckRequest):
     if not (-90 <= req.lat <= 90 and -180 <= req.lon <= 180):
         raise HTTPException(400, "lat must be -90..90, lon -180..180")
     try:
-        raw = fetch_monthly(req.lat, req.lon, req.start_year, req.end_year)
+        raw, cached = fetch_monthly(req.lat, req.lon, req.start_year, req.end_year)
     except Exception as e:
         raise HTTPException(502, f"NASA POWER API error: {e}")
     # Organize by month: {mm: [(yyyymm, val)]}
@@ -214,6 +232,7 @@ def normal_check(req: NormalCheckRequest):
         "one_in_n_years": one_in_n,
         "baseline_years": n,
         "verdict": verdict, "emoji": emoji,
+        "cached": cached,
         "data_source": "NASA POWER (MERRA-2) monthly T2M, real observations",
     }
 
@@ -235,7 +254,7 @@ def danger_days(req: DangerDaysRequest):
     if not (30 <= req.threshold_c <= 50):
         raise HTTPException(400, "threshold_c must be 30..50")
     try:
-        raw = fetch_daily_tmax(req.lat, req.lon, req.start_year, req.end_year)
+        raw, cached = fetch_daily_tmax(req.lat, req.lon, req.start_year, req.end_year)
     except Exception as e:
         raise HTTPException(502, f"NASA POWER API error: {e}")
     per_year: dict[int, int] = {}
@@ -271,6 +290,7 @@ def danger_days(req: DangerDaysRequest):
     return {
         "place": req.place, "lat": req.lat, "lon": req.lon,
         "threshold_c": req.threshold_c,
+        "cached": cached,
         "per_year": {str(y): per_year.get(y, 0) for y in years},
         "decades": decade_bars,
         "first_decade_avg": first_avg,

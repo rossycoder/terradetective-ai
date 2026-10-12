@@ -49,7 +49,9 @@ def annual_means(monthly: dict) -> dict:
 
 
 def linear_trend(annual: dict) -> dict:
-    """Least-squares fit. Returns slope per year, per decade, R^2, n."""
+    """Least-squares fit. Returns slope per year, per decade, R^2, n,
+    plus standard error, 95% confidence interval and two-tailed p-value
+    for the slope (pure-python Student-t, no scipy needed)."""
     xs = sorted(annual.keys())
     n = len(xs)
     if n < 5:
@@ -65,8 +67,95 @@ def linear_trend(annual: dict) -> dict:
     ss_tot = sum((yi - my) ** 2 for yi in y)
     ss_res = sum((yi - (slope * xi + intercept)) ** 2 for xi, yi in zip(x, y))
     r2 = 1 - ss_res / ss_tot if ss_tot else 0.0
+    # --- trend confidence: SE, 95% CI, p-value for the slope ---
+    df = n - 2
+    se = math.sqrt(ss_res / df / sxx) if sxx and df > 0 and ss_res >= 0 else 0.0
+    if se > 0 and df >= 1:
+        t_crit = _t_ppf(0.975, df)
+        ci_lo, ci_hi = slope - t_crit * se, slope + t_crit * se
+        t_stat = slope / se
+        p_value = 2 * (1 - _t_cdf(abs(t_stat), df))
+        p_value = min(max(p_value, 0.0), 1.0)
+    else:
+        ci_lo, ci_hi, p_value = slope, slope, 1.0
     return {"slope_per_year": slope, "slope_per_decade": slope * 10,
-            "r2": r2, "n": n, "first_year": xs[0], "last_year": xs[-1]}
+            "r2": r2, "n": n, "first_year": xs[0], "last_year": xs[-1],
+            "slope_se_per_year": se,
+            "slope_ci95_per_year": [ci_lo, ci_hi],
+            "slope_ci95_per_decade": [ci_lo * 10, ci_hi * 10],
+            "p_value": p_value,
+            "significant_95": bool(p_value < 0.05)}
+
+
+def _betacf(a: float, b: float, x: float) -> float:
+    """Continued fraction for the incomplete beta function (Numerical Recipes)."""
+    MAXIT, EPS, FPMIN = 200, 3e-12, 1e-300
+    qab, qap, qam = a + b, a + 1.0, a - 1.0
+    c = 1.0
+    d = 1.0 - qab * x / qap
+    if abs(d) < FPMIN:
+        d = FPMIN
+    d = 1.0 / d
+    h = d
+    for m in range(1, MAXIT + 1):
+        m2 = 2 * m
+        aa = m * (b - m) * x / ((qam + m2) * (a + m2))
+        d = 1.0 + aa * d
+        if abs(d) < FPMIN:
+            d = FPMIN
+        c = 1.0 + aa / c
+        if abs(c) < FPMIN:
+            c = FPMIN
+        d = 1.0 / d
+        h *= d * c
+        aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
+        d = 1.0 + aa * d
+        if abs(d) < FPMIN:
+            d = FPMIN
+        c = 1.0 + aa / c
+        if abs(c) < FPMIN:
+            c = FPMIN
+        d = 1.0 / d
+        delta = c * d
+        h *= delta
+        if abs(delta - 1.0) < EPS:
+            break
+    return h
+
+
+def _betai(a: float, b: float, x: float) -> float:
+    """Regularized incomplete beta I_x(a, b)."""
+    if x <= 0.0:
+        return 0.0
+    if x >= 1.0:
+        return 1.0
+    lb = math.lgamma(a + b) - math.lgamma(a) - math.lgamma(b)
+    if x < (a + 1.0) / (a + b + 2.0):
+        bt = math.exp(a * math.log(x) + b * math.log(1.0 - x) + lb) / a
+        return bt * _betacf(a, b, x)
+    bt = math.exp(a * math.log(x) + b * math.log(1.0 - x) + lb) / b
+    return 1.0 - bt * _betacf(b, a, 1.0 - x)
+
+
+def _t_cdf(t: float, df: int) -> float:
+    """CDF of Student's t with df degrees of freedom."""
+    if t == 0.0:
+        return 0.5
+    x = df / (df + t * t)
+    ib = _betai(df / 2.0, 0.5, x)
+    return 1.0 - 0.5 * ib if t > 0 else 0.5 * ib
+
+
+def _t_ppf(p: float, df: int) -> float:
+    """Inverse CDF (quantile) of Student's t via bisection. p in (0,1)."""
+    lo, hi = -1e4, 1e4
+    for _ in range(100):
+        mid = (lo + hi) / 2.0
+        if _t_cdf(mid, df) < p:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2.0
 
 
 def detect_anomalies(annual: dict, trend: dict, sigma: float = 2.0) -> list:
@@ -113,6 +202,13 @@ def heuristic_report(place: str, lat: float, lon: float,
         lines.append(f"TEMPERATURE: {direction.upper()} at {s:+.2f} °C per decade "
                      f"({strength} signal, R²={t_trend['r2']:.2f}). "
                      f"Over {t_trend['n']} years that compounds to roughly {s * t_trend['n'] / 10:+.1f} °C.")
+    # Trend confidence: 95% CI + p-value so the "warming" claim is checkable
+    ci = t_trend.get("slope_ci95_per_decade")
+    pv = t_trend.get("p_value")
+    if ci and pv is not None:
+        verdict = "statistically significant at α=0.05" if t_trend.get("significant_95") else "not significant at α=0.05"
+        lines.append(f"CONFIDENCE: 95% CI [{ci[0]:+.2f}, {ci[1]:+.2f}] °C/decade, "
+                     f"p={pv:.4f} — {verdict}.")
     # Precipitation verdict
     ps = p_trend["slope_per_decade"]
     if abs(ps) < 0.02:
@@ -134,7 +230,8 @@ def heuristic_report(place: str, lat: float, lon: float,
     lines.append("")
     lines.append(_variant(place + "|closer", _CLOSERS))
     lines.append("")
-    lines.append("METHOD: least-squares trend + ±2σ anomaly scan on NASA POWER monthly data. "
+    lines.append("METHOD: least-squares trend with 95% confidence interval and p-value "
+                 "(Student-t, pure Python) + ±2σ anomaly scan on NASA POWER monthly data. "
                  "Not a forecast — a reading of what already happened.")
     return "\n".join(lines)
 
