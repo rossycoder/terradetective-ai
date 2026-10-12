@@ -87,6 +87,36 @@ canvas#chart{width:100%;height:230px;display:block}
   border:1px solid #f87171;color:#fecaca;padding:12px 20px;border-radius:14px;font-size:13.5px;opacity:0;
   pointer-events:none;transition:.3s;z-index:99;max-width:92vw}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#toast.ok{border-color:#34d399;color:#a7f3d0}
+/* feature cards */
+.btn2{background:var(--panel2);border:1px solid var(--line);color:var(--txt);font-weight:600;font-size:13px;
+  padding:10px 22px;border-radius:12px;cursor:pointer;font-family:inherit;transition:.2s;margin-top:12px}
+.btn2:hover{border-color:var(--pnk);transform:translateY(-1px)}
+.btn2:disabled{opacity:.55;cursor:wait;transform:none}
+select{background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:12px;color:var(--txt);
+  padding:11px 14px;font-size:14px;font-family:inherit;outline:none}
+select option{background:#0a0f1e}
+.rowflex{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:4px}
+.twin-reveal{text-align:center;padding:30px 14px;background:rgba(99,102,241,.07);
+  border:1px solid rgba(244,114,182,.35);border-radius:16px;animation:pop .5s ease both}
+.twin-big{font-family:'Space Grotesk';font-size:29px;font-weight:700;line-height:1.45}
+.twin-big .city{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.twin-temps{display:flex;justify-content:center;gap:32px;margin-top:16px;flex-wrap:wrap}
+.twin-temps .tt b{font-size:23px;font-family:'Space Grotesk';color:var(--cy)}
+.twin-temps .tt span{display:block;font-size:11.5px;color:var(--dim);margin-top:3px}
+.verdict-card{text-align:center;padding:26px 16px;border-radius:16px;border:1px solid var(--line);
+  background:rgba(0,0,0,.25);animation:pop .5s ease both}
+.verdict-card .ve{font-size:46px}
+.verdict-card .vv{font-family:'Space Grotesk';font-size:27px;font-weight:700;margin:10px 0 4px;letter-spacing:1px}
+.verdict-card .vd{color:var(--dim);font-size:13.5px;max-width:560px;margin:8px auto 0;line-height:1.6}
+.verdict-card.red{border-color:rgba(248,113,113,.55);box-shadow:0 0 34px rgba(248,113,113,.12)}
+.verdict-card.yellow{border-color:rgba(251,191,36,.55)}
+.verdict-card.green{border-color:rgba(52,211,153,.45)}
+.verdict-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:16px}
+.verdict-grid .vg{background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:12px;padding:10px}
+.verdict-grid .vg b{font-family:'Space Grotesk';font-size:17px}
+.verdict-grid .vg span{display:block;font-size:11px;color:var(--dim);margin-top:2px}
+canvas#dangerchart{width:100%;height:220px;display:block}
 @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
 @keyframes pop{from{opacity:0;transform:scale(.985)}to{opacity:1;transform:none}}
 @keyframes sp{to{transform:rotate(360deg)}}
@@ -121,8 +151,10 @@ canvas#chart{width:100%;height:230px;display:block}
 <script>
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),4200);}
+function toast(m,ok){const t=$('toast');t.textContent=m;t.classList.toggle('ok',!!ok);
+  t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),4200);}
 let lastCase=null; // last successful /api/investigate result — source of the downloadable case file
+let lastPlace='',lastLat=0,lastLon=0; // coordinates of the last investigation
 
 const PRESETS=[
   ['Karachi, Pakistan',24.86,67.01],['Thar Desert, Pakistan',25.2,69.5],
@@ -169,15 +201,18 @@ async function investigate(){
     if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||('server '+r.status));}
     const d=await r.json();
     lastCase=d; // remember for the case-file download
+    lastPlace=place;lastLat=lat;lastLon=lon;
     const yrs=Object.keys(d.temperature.annual_means_c).map(Number).sort((a,b)=>a-b);
     const vals=yrs.map(y=>d.temperature.annual_means_c[y]);
     const t=d.temperature.trend,anoms=d.temperature.anomalies||[];
     const per=t.slope_per_decade||0,cls=per>0.05?'up':per<-0.05?'dn':'neu';
+    const r2v=(t.r2??0),fit=r2v>=0.5?'strong fit':r2v>=0.25?'moderate fit':'weak fit';
     const anomTxt=anoms.length?anoms.slice(0,6).map(a=>a.year).join(', ')+(anoms.length>6?` +${anoms.length-6} more`:''):'none detected';
+    const yrOpts=yrs.slice().reverse().map(y=>`<option value="${y}">${y}</option>`).join('');
     $('stage').innerHTML=`<div id="results" style="display:block">
       <div class="stats">
         <div class="stat ${cls}" style="animation-delay:.02s"><div class="v">${per>=0?'+':''}${per.toFixed(2)}°</div><div class="l">warming per decade</div></div>
-        <div class="stat neu" style="animation-delay:.08s"><div class="v">${(t.r2??0).toFixed(2)}</div><div class="l">trend fit (R²)</div></div>
+        <div class="stat neu" style="animation-delay:.08s"><div class="v">${r2v.toFixed(2)}</div><div class="l">trend fit (R²) · ${fit}</div></div>
         <div class="stat neu" style="animation-delay:.14s"><div class="v">${anoms.length}</div><div class="l">anomaly years flagged</div></div>
         <div class="stat neu" style="animation-delay:.2s"><div class="v">${d.elevation_m??'—'}<span style="font-size:14px"> m</span></div><div class="l">elevation</div></div>
       </div>
@@ -188,10 +223,27 @@ async function investigate(){
         <span><i style="background:#fbbf24;border-radius:50%;width:10px;height:10px"></i>anomaly year</span></div>
         <div class="meta">${esc(d.place)} · ${yrs[0]}–${yrs[yrs.length-1]} · anomalies: ${esc(anomTxt)}</div>
       </div>
-      <div class="card"><h2 class="dl-head"><span><span class="n">3</span>Detective report</span><button class="dlbtn" id="dlbtn" onclick="downloadCase()" title="Download this investigation as a Markdown case file">⬇️ Download Case File</button></h2>
-        <div class="dossier"><pre>${esc(d.report.narrative)}</pre>
-        <div><span class="prov">narrated by ${esc(d.report.provider)}</span></div></div>
+      <div class="card"><h2 class="dl-head"><span><span class="n">3</span>Detective report</span><span><button class="dlbtn" id="narrbtn" onclick="narrateAI()" title="Let a real AI narrate this report (free tier)">✨ Narrate with AI</button> <button class="dlbtn" id="dlbtn" onclick="downloadCase()" title="Download this investigation as a Markdown case file">⬇️ Download Case File</button></span></h2>
+        <div class="dossier"><pre id="dossierpre">${esc(d.report.narrative)}</pre>
+        <div><span class="prov" id="provbadge">narrated by ${esc(d.report.provider)}</span></div></div>
         <div class="meta">Source: ${esc(d.data_source)} · elevation ${d.elevation_m??'—'} m · precipitation trend ${(d.precipitation.trend.slope_per_decade??0)>=0?'+':''}${(d.precipitation.trend.slope_per_decade??0).toFixed(3)} mm/day per decade</div>
+      </div>
+      <div class="card"><h2><span class="n">4</span>Future Twin City — what will ${esc(place.split(',')[0])} feel like in 2050?</h2>
+        <div id="twin-out"><p class="meta" style="margin-top:0">We extrapolate this location's measured warming trend to 2050 and match it against present-day cities. One click, one viral reveal.</p>
+        <button class="btn2" onclick="twinCity()">🔮 Reveal my city's twin</button></div>
+      </div>
+      <div class="card"><h2><span class="n">5</span>Was This Normal? — the anomaly verdict</h2>
+        <p class="meta" style="margin-top:0">Pick any month and ask the question everyone asks: was this heatwave normal, or a sign of things to come? Compared against its own 40-year baseline.</p>
+        <div class="rowflex">
+          <select id="ncyear"><option value="">Latest extreme (auto)</option>${yrOpts}</select>
+          <select id="ncmonth"><option value="">Any month (auto)</option><option value="1">January</option><option value="2">February</option><option value="3">March</option><option value="4">April</option><option value="5">May</option><option value="6">June</option><option value="7">July</option><option value="8">August</option><option value="9">September</option><option value="10">October</option><option value="11">November</option><option value="12">December</option></select>
+          <button class="btn2" onclick="normalCheck()">🌡️ Get the verdict</button>
+        </div>
+        <div id="normal-out" style="margin-top:14px"></div>
+      </div>
+      <div class="card"><h2><span class="n">6</span>Danger Days — the body count</h2>
+        <div id="danger-out"><p class="meta" style="margin-top:0">How many days per year crossed 35°C here? The metric people actually feel — counted from real daily NASA data, decade by decade.</p>
+        <button class="btn2" onclick="dangerDays()">☠️ Count dangerous heat days</button></div>
       </div></div>`;
     drawChart(yrs,vals,anoms);
     $('stage').scrollIntoView({behavior:'smooth'});
@@ -264,14 +316,128 @@ function buildCaseFile(d){
 
 function downloadCase(){
   if(!lastCase){toast('Run an investigation first.');return;}
-  const md=buildCaseFile(lastCase);
-  const blob=new Blob([md],{type:'text/markdown;charset=utf-8'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a');
-  a.href=url;
-  a.download=`terradetective-case-${sanitizeName(lastCase.place)}.md`;
-  document.body.appendChild(a);a.click();a.remove();
-  setTimeout(()=>URL.revokeObjectURL(url),2000);
+  try{
+    const md=buildCaseFile(lastCase);
+    const blob=new Blob([md],{type:'text/markdown;charset=utf-8'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download=`terradetective-case-${sanitizeName(lastCase.place)}.md`;
+    document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),2000);
+    toast('✅ Case file downloaded — check your downloads folder.',true);
+  }catch(e){toast('Download failed: '+e.message);}
+}
+
+async function narrateAI(){
+  if(!lastCase){toast('Run an investigation first.');return;}
+  const b=$('narrbtn');b.disabled=true;b.textContent='✨ Narrating…';
+  try{
+    const r=await fetch('/api/narrate',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({place:lastPlace,stats_text:lastCase.report.narrative})});
+    if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||('server '+r.status));}
+    const d=await r.json();
+    $('dossierpre').textContent=d.narrative;
+    $('provbadge').textContent='narrated by '+d.provider;
+    lastCase.report.narrative=d.narrative;lastCase.report.provider=d.provider;
+    toast('✨ AI narration ready!',true);
+  }catch(e){toast('AI narration unavailable — keeping the heuristic report. ('+e.message+')');}
+  b.disabled=false;b.textContent='✨ Narrate with AI';
+}
+
+async function twinCity(){
+  const out=$('twin-out');
+  out.innerHTML='<div class="loading" style="padding:28px"><div class="spinner" style="width:32px;height:32px"></div><b>Projecting to 2050…</b></div>';
+  try{
+    const r=await fetch('/api/twin-city',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({place:lastPlace,lat:lastLat,lon:lastLon})});
+    if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||('server '+r.status));}
+    const d=await r.json();
+    const short=esc(lastPlace.split(',')[0]);
+    out.innerHTML=`<div class="twin-reveal">
+      <div class="twin-big">🔮 ${short} 2050<br>= today's <span class="city">${esc(d.twin_city)}</span></div>
+      <div class="twin-temps">
+        <div class="tt"><b>${d.projected_mean_c.toFixed(1)}°C</b><span>projected 2050 annual mean</span></div>
+        <div class="tt"><b>${d.twin_city_mean_c.toFixed(1)}°C</b><span>${esc(d.twin_city)} today</span></div>
+        <div class="tt"><b>+${d.warming_by_target_c.toFixed(1)}°C</b><span>warmer than ${d.last_year}</span></div>
+      </div>
+      <div class="meta">Runner-up twin: ${esc(d.runner_up)} · ${esc(d.method)} · based on ${esc(d.data_source)}</div>
+    </div>`;
+  }catch(e){out.innerHTML='';toast('Twin City failed: '+e.message);}
+}
+
+async function normalCheck(){
+  const out=$('normal-out');
+  const yv=$('ncyear').value,mv=$('ncmonth').value;
+  out.innerHTML='<div class="loading" style="padding:28px"><div class="spinner" style="width:32px;height:32px"></div><b>Consulting the 40-year record…</b></div>';
+  try{
+    const r=await fetch('/api/normal-check',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({place:lastPlace,lat:lastLat,lon:lastLon,
+        year:yv?parseInt(yv):null,month:mv?parseInt(mv):null})});
+    if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||('server '+r.status));}
+    const d=await r.json();
+    const cls=d.verdict==='NOT NORMAL'?'red':d.verdict==='UNUSUAL'?'yellow':'green';
+    const dirn=d.anomaly_c>=0?'above':'below';
+    out.innerHTML=`<div class="verdict-card ${cls}">
+      <div class="ve">${d.emoji}</div>
+      <div class="vv">VERDICT: ${d.verdict}</div>
+      <div class="vd">${esc(d.month_name)} ${d.year} in ${esc(d.place.split(',')[0])} was
+        <b>${Math.abs(d.anomaly_c).toFixed(1)}°C ${dirn}</b> its ${d.baseline_years}-year average
+        — a <b>1-in-${d.one_in_n_years}-year</b> event for that month.</div>
+      <div class="verdict-grid">
+        <div class="vg"><b>${d.observed_c.toFixed(1)}°C</b><span>observed</span></div>
+        <div class="vg"><b>${d.baseline_mean_c.toFixed(1)}°C</b><span>40-yr average</span></div>
+        <div class="vg"><b>${d.z_score>=0?'+':''}${d.z_score.toFixed(1)}σ</b><span>standard deviations</span></div>
+        <div class="vg"><b>${d.percentile}%</b><span>percentile</span></div>
+      </div>
+      <div class="meta">Baseline: ${esc(d.data_source)}</div>
+    </div>`;
+  }catch(e){out.innerHTML='';toast('Verdict failed: '+e.message);}
+}
+
+function drawBars(labels,vals){
+  const cv=$('dangerchart'),dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=220;
+  cv.width=W*dpr;cv.height=H*dpr;const x=cv.getContext('2d');x.scale(dpr,dpr);
+  const max=Math.max(...vals,1)*1.15,n=vals.length,bw=(W-60)/n;
+  x.fillStyle='#5b6484';x.font='11px Inter';
+  vals.forEach((v,i)=>{
+    const h=v/max*(H-60),bx=46+i*bw+bw*0.18,by=H-34-h;
+    const g=x.createLinearGradient(0,by,0,by+h);
+    g.addColorStop(0,'#f87171');g.addColorStop(1,'rgba(248,113,113,.25)');
+    x.fillStyle=g;
+    const r=Math.min(6,bw*0.2);
+    x.beginPath();x.roundRect(bx,by,bw*0.64,h,[r,r,0,0]);x.fill();
+    x.fillStyle='#eef2ff';x.font='bold 12px Inter';x.textAlign='center';
+    x.fillText(v.toFixed(v<10&&v%1?1:0),bx+bw*0.32,by-6);
+    x.fillStyle='#5b6484';x.font='11px Inter';
+    x.fillText(labels[i],bx+bw*0.32,H-12);x.textAlign='left';
+  });
+}
+
+async function dangerDays(){
+  const out=$('danger-out');
+  out.innerHTML='<div class="loading" style="padding:28px"><div class="spinner" style="width:32px;height:32px"></div><b>Counting 40 years of scorching days…</b><div class="steps">fetching daily NASA data · ~14,600 days</div></div>';
+  try{
+    const r=await fetch('/api/danger-days',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({place:lastPlace,lat:lastLat,lon:lastLon,threshold_c:35})});
+    if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||('server '+r.status));}
+    const d=await r.json();
+    if(!d.decades.length) throw new Error('no usable daily data');
+    const labels=d.decades.map(z=>z.decade+(z.partial?'*':'')),
+          vals=d.decades.map(z=>z.avg_days_per_year);
+    const first=d.decades[0],last=d.decades[d.decades.length-1];
+    const trend=d.change_per_year>0?'more':d.change_per_year<0?'fewer':'about the same';
+    out.innerHTML=`<div class="verdict-card ${d.change_per_year>0?'red':'green'}">
+      <div class="ve">☠️</div>
+      <div class="vv">${first.avg_days_per_year.toFixed(0)} → ${last.avg_days_per_year.toFixed(0)} danger days/yr</div>
+      <div class="vd">Days above <b>35°C</b> in ${esc(d.place.split(',')[0])}: <b>${first.avg_days_per_year.toFixed(1)}/yr</b> in the ${esc(first.decade)}
+        vs <b>${last.avg_days_per_year.toFixed(1)}/yr</b> in the ${esc(last.decade)} — ${trend} deadly heat.
+        ${d.decades.some(z=>z.partial)?'<br>*Partial decade — not all 10 years are in the record.':''}</div>
+      <div style="margin-top:16px"><canvas id="dangerchart"></canvas></div>
+      <div class="meta">Average days/year ≥ 35°C per decade · ${esc(d.data_source)}</div>
+    </div>`;
+    drawBars(labels,vals);
+  }catch(e){out.innerHTML='<p class="meta">Failed — try again.</p>';toast('Danger Days failed: '+e.message);}
 }
 </script>
 </body>
