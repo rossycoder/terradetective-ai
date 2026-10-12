@@ -44,3 +44,22 @@ def fetch_climatology(lat: float, lon: float, timeout: int = 30) -> dict:
         "t2m": {k: v for k, v in p["T2M"].items() if k != "ANN"},
         "prec": {k: v for k, v in p["PRECTOTCORR"].items() if k != "ANN"},
     }
+
+
+def fetch_daily_tmax(lat: float, lon: float, start_year: int = 1985,
+                     end_year: int = 2025, timeout: int = 60) -> dict:
+    """Fetch DAILY maximum 2m temperature (T2M_MAX) for a point.
+
+    Returns {daily: {"YYYYMMDD": value}}. ~14,600 days for 40 years.
+    Fill values (-999) are kept as-is for the caller to filter.
+    """
+    url = (f"{BASE}/temporal/daily/point?parameters=T2M_MAX&community=AG"
+           f"&longitude={lon}&latitude={lat}&format=JSON"
+           f"&start={start_year}&end={end_year}")
+    r = requests.get(url, timeout=timeout)
+    r.raise_for_status()
+    data = r.json()
+    if "properties" not in data:
+        raise ValueError(f"POWER API error: {str(data)[:200]}")
+    p = data["properties"]["parameter"]
+    return {"daily": dict(p["T2M_MAX"])}

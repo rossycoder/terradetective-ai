@@ -10,10 +10,31 @@ Every narrative is labeled with its provider. No invented numbers.
 """
 import math
 import os
+import hashlib
 
 from app import free_llm
 
 AI_PROVIDER = os.environ.get("AI_PROVIDER", "heuristic")  # heuristic | auto | groq | gemini
+
+# Rotating detective openings so repeated investigations don't read identically.
+_OPENINGS = [
+    "Case opened. The satellite record doesn't lie — let's read what it says.",
+    "New case on the desk. Forty years of sky, decoded one pixel at a time.",
+    "The file was dusty but the numbers were fresh. Here's what the evidence shows.",
+    "Another location, another trail of degrees. The detective work begins.",
+]
+_CLOSERS = [
+    "Case status: evidence logged. The climate has been leaving fingerprints all along.",
+    "The trail ends here — but the trend keeps walking. File closed, detective.",
+    "No alibis left in the data. The verdict stands on the numbers above.",
+]
+
+
+def _variant(seed: str, options: list) -> str:
+    """Deterministically pick a variant from a seed (place name) — same place,
+    same wording; different places read differently."""
+    h = int(hashlib.md5(seed.encode("utf-8")).hexdigest(), 16)
+    return options[h % len(options)]
 
 
 def annual_means(monthly: dict) -> dict:
@@ -78,7 +99,9 @@ def heuristic_report(place: str, lat: float, lon: float,
     """Plain-language detective report from real statistics. Provider: heuristic."""
     lines = [f"DETECTIVE REPORT — {place} ({lat:.2f}, {lon:.2f})",
              f"Data: NASA POWER (MERRA-2), {t_trend.get('first_year')}-{t_trend.get('last_year')} "
-             f"({t_trend.get('n')} years of monthly observations).", ""]
+             f"({t_trend.get('n')} years of monthly observations).",
+             "",
+             _variant(place, _OPENINGS), ""]
     # Temperature verdict
     s = t_trend["slope_per_decade"]
     if abs(s) < 0.05:
@@ -108,6 +131,8 @@ def heuristic_report(place: str, lat: float, lon: float,
         lines.append(f"RAINFALL OUTLIER: {top['year']} ({top['anomaly']:+.2f} mm/day off trend).")
     if not t_anom and not p_anom:
         lines.append("No extreme outlier years detected — change here is gradual, not spiky.")
+    lines.append("")
+    lines.append(_variant(place + "|closer", _CLOSERS))
     lines.append("")
     lines.append("METHOD: least-squares trend + ±2σ anomaly scan on NASA POWER monthly data. "
                  "Not a forecast — a reading of what already happened.")
