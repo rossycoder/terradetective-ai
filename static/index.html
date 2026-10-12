@@ -7,6 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
 :root{
   --bg:#04060e; --panel:rgba(255,255,255,.035); --panel2:rgba(255,255,255,.06);
@@ -117,6 +119,8 @@ select option{background:#0a0f1e}
 .verdict-grid .vg b{font-family:'Space Grotesk';font-size:17px}
 .verdict-grid .vg span{display:block;font-size:11px;color:var(--dim);margin-top:2px}
 canvas#dangerchart{width:100%;height:220px;display:block}
+#map{height:250px;border-radius:14px;margin-top:12px;border:1px solid var(--line);z-index:1}
+.maphint{font-size:11.5px;color:var(--faint);margin-top:6px}
 @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
 @keyframes pop{from{opacity:0;transform:scale(.985)}to{opacity:1;transform:none}}
 @keyframes sp{to{transform:rotate(360deg)}}
@@ -142,6 +146,9 @@ canvas#dangerchart{width:100%;height:220px;display:block}
       </div>
     </div>
     <button class="btn" id="go" onclick="investigate()">🔍 Investigate 40 years</button>
+    <button class="btn2" id="sharebtn" onclick="shareCase()" title="Copy a link to this exact case">🔗 Share this case</button>
+    <div id="map"></div>
+    <div class="maphint">🗺️ No city in mind? Click anywhere on the map to drop a pin and investigate that spot.</div>
   </div>
 
   <div id="stage"></div>
@@ -162,6 +169,47 @@ const PRESETS=[
 $('presets').innerHTML=PRESETS.map((p,i)=>`<button class="preset${i===0?' on':''}" onclick="pick(${i},this)">${p[0].split(',')[0]}</button>`).join('');
 function pick(i,el){const p=PRESETS[i];$('place').value=p[0];$('lat').value=p[1];$('lon').value=p[2];
   document.querySelectorAll('.preset').forEach(x=>x.classList.remove('on'));el.classList.add('on');}
+
+/* --- Leaflet map picker: click anywhere to set the investigation point --- */
+let _map=null,_marker=null;
+function initMap(){
+  try{
+    _map=L.map('map',{scrollWheelZoom:false}).setView([24.86,67.01],3);
+    _map.on('focus',()=>_map.scrollWheelZoom.enable());
+    _map.on('blur',()=>_map.scrollWheelZoom.disable());
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+      {maxZoom:18,attribution:'© OpenStreetMap contributors © CARTO'}).addTo(_map);
+    _map.on('click',e=>{
+      const la=+e.latlng.lat.toFixed(2),lo=+e.latlng.lng.toFixed(2);
+      if(_marker)_marker.setLatLng(e.latlng);else _marker=L.marker(e.latlng).addTo(_map);
+      $('lat').value=la;$('lon').value=lo;
+      $('place').value=`Map pin (${la}, ${lo})`;
+      document.querySelectorAll('.preset').forEach(x=>x.classList.remove('on'));
+    });
+  }catch(e){/* Leaflet CDN failed — the manual coordinate fields still work */}
+}
+
+/* --- Share links: ?place=&lat=&lon= auto-runs the case on load --- */
+function shareCase(){
+  const place=$('place').value.trim()||'Shared location';
+  const la=$('lat').value,lo=$('lon').value;
+  if(isNaN(parseFloat(la))||isNaN(parseFloat(lo))){toast('Set valid coordinates first.');return;}
+  const url=`${location.origin}${location.pathname}?place=${encodeURIComponent(place)}&lat=${la}&lon=${lo}`;
+  const done=()=>toast('🔗 Share link copied — send it to anyone!',true);
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(url).then(done).catch(()=>prompt('Copy this link:',url));
+  }else prompt('Copy this link:',url);
+}
+function applySharedLink(){
+  const q=new URLSearchParams(location.search);
+  const la=parseFloat(q.get('lat')),lo=parseFloat(q.get('lon'));
+  if(!isNaN(la)&&!isNaN(lo)&&la>=-90&&la<=90&&lo>=-180&&lo<=180){
+    $('place').value=q.get('place')||'Shared location';
+    $('lat').value=la.toFixed(2);$('lon').value=lo.toFixed(2);
+    document.querySelectorAll('.preset').forEach(x=>x.classList.remove('on'));
+    setTimeout(investigate,700);
+  }
+}
 
 function drawChart(years,vals,anoms){
   const cv=$('chart'),dpr=window.devicePixelRatio||1,W=cv.clientWidth,H=230;
@@ -208,6 +256,11 @@ async function investigate(){
     const per=t.slope_per_decade||0,cls=per>0.05?'up':per<-0.05?'dn':'neu';
     const r2v=(t.r2??0),fit=r2v>=0.5?'strong fit':r2v>=0.25?'moderate fit':'weak fit';
     const anomTxt=anoms.length?anoms.slice(0,6).map(a=>a.year).join(', ')+(anoms.length>6?` +${anoms.length-6} more`:''):'none detected';
+    const ci=t.slope_ci95_per_decade,pv=t.p_value;
+    const ciTxt=Array.isArray(ci)?`95% CI [${ci[0]>=0?'+':''}${ci[0].toFixed(2)}, ${ci[1]>=0?'+':''}${ci[1].toFixed(2)}]`:'';
+    const pTxt=(pv===undefined||pv===null)?'':`p=${pv<0.001?'&lt;0.001':pv.toFixed(3)}${t.significant_95?' ✓ significant':' · not significant'}`;
+    const cacheTxt=d.cached?'<b style="color:#7dd3fc">⚡ cached result</b> · ':'';
+    const trendTxt=`trend ${per>=0?'+':''}${per.toFixed(2)}°C/decade (${ciTxt}; ${pTxt})`;
     const yrOpts=yrs.slice().reverse().map(y=>`<option value="${y}">${y}</option>`).join('');
     $('stage').innerHTML=`<div id="results" style="display:block">
       <div class="stats">
@@ -221,7 +274,7 @@ async function investigate(){
         <div class="legend"><span><i style="background:#a5b4fc"></i>observed annual mean</span>
         <span><i style="background:#f472b6"></i>fitted trend</span>
         <span><i style="background:#fbbf24;border-radius:50%;width:10px;height:10px"></i>anomaly year</span></div>
-        <div class="meta">${esc(d.place)} · ${yrs[0]}–${yrs[yrs.length-1]} · anomalies: ${esc(anomTxt)}</div>
+        <div class="meta">${cacheTxt}${esc(d.place)} · ${yrs[0]}–${yrs[yrs.length-1]} · ${trendTxt} · anomalies: ${esc(anomTxt)}</div>
       </div>
       <div class="card"><h2 class="dl-head"><span><span class="n">3</span>Detective report</span><span><button class="dlbtn" id="narrbtn" onclick="narrateAI()" title="Let a real AI narrate this report (free tier)">✨ Narrate with AI</button> <button class="dlbtn" id="dlbtn" onclick="downloadCase()" title="Download this investigation as a Markdown case file">⬇️ Download Case File</button></span></h2>
         <div class="dossier"><pre id="dossierpre">${esc(d.report.narrative)}</pre>
@@ -277,6 +330,10 @@ function buildCaseFile(d){
   L.push('## 🔑 KEY FINDINGS');
   L.push(`- **Warming rate:** ${per>=0?'+':''}${Number(per).toFixed(2)}°C per decade`);
   L.push(`- **Trend fit (R²):** ${Number(r2).toFixed(2)}`);
+  const ciB=tr.slope_ci95_per_decade,pvB=tr.p_value;
+  if(Array.isArray(ciB)&&typeof pvB==='number'){
+    L.push(`- **Trend confidence:** 95% CI [${ciB[0].toFixed(2)}, ${ciB[1].toFixed(2)}] °C/decade; p=${pvB<0.001?'<0.001':pvB.toFixed(4)}${tr.significant_95?' (significant at α=0.05)':' (not significant at α=0.05)'}`);
+  }
   if(anoms.length){
     L.push(`- **Anomaly years flagged:** ${anoms.length} — ${anoms.map(a=>a.year).join(', ')}`);
     anoms.forEach(a=>{L.push(`  - ${a.year}: ${Number(a.anomaly)>=0?'+':''}${Number(a.anomaly).toFixed(2)}°C vs trend (observed ${Number(a.value).toFixed(2)}°C)`);});
@@ -361,7 +418,7 @@ async function twinCity(){
         <div class="tt"><b>${d.twin_city_mean_c.toFixed(1)}°C</b><span>${esc(d.twin_city)} today</span></div>
         <div class="tt"><b>+${d.warming_by_target_c.toFixed(1)}°C</b><span>warmer than ${d.last_year}</span></div>
       </div>
-      <div class="meta">Runner-up twin: ${esc(d.runner_up)} · ${esc(d.method)} · based on ${esc(d.data_source)}</div>
+      <div class="meta">${d.cached?'<b style="color:#7dd3fc">⚡ cached</b> · ':''}Runner-up twin: ${esc(d.runner_up)} · ${esc(d.method)} · based on ${esc(d.data_source)}</div>
     </div>`;
   }catch(e){out.innerHTML='';toast('Twin City failed: '+e.message);}
 }
@@ -390,7 +447,7 @@ async function normalCheck(){
         <div class="vg"><b>${d.z_score>=0?'+':''}${d.z_score.toFixed(1)}σ</b><span>standard deviations</span></div>
         <div class="vg"><b>${d.percentile}%</b><span>percentile</span></div>
       </div>
-      <div class="meta">Baseline: ${esc(d.data_source)}</div>
+      <div class="meta">${d.cached?'<b style="color:#7dd3fc">⚡ cached</b> · ':''}Baseline: ${esc(d.data_source)}</div>
     </div>`;
   }catch(e){out.innerHTML='';toast('Verdict failed: '+e.message);}
 }
@@ -434,11 +491,15 @@ async function dangerDays(){
         vs <b>${last.avg_days_per_year.toFixed(1)}/yr</b> in the ${esc(last.decade)} — ${trend} deadly heat.
         ${d.decades.some(z=>z.partial)?'<br>*Partial decade — not all 10 years are in the record.':''}</div>
       <div style="margin-top:16px"><canvas id="dangerchart"></canvas></div>
-      <div class="meta">Average days/year ≥ 35°C per decade · ${esc(d.data_source)}</div>
+      <div class="meta">${d.cached?'<b style="color:#7dd3fc">⚡ cached</b> · ':''}Average days/year ≥ 35°C per decade · ${esc(d.data_source)}</div>
     </div>`;
     drawBars(labels,vals);
   }catch(e){out.innerHTML='<p class="meta">Failed — try again.</p>';toast('Danger Days failed: '+e.message);}
 }
+
+/* page init: map picker + shared-link auto-run */
+initMap();
+applySharedLink();
 </script>
 </body>
 </html>
