@@ -209,6 +209,7 @@ def normal_check(req: NormalCheckRequest):
     # Percentile + "1-in-N" among the n same-month observations
     rank = sum(1 for v in vals if v <= target_val)  # 1..n
     n = len(vals)
+    obs_years = [ymi // 100 for ymi, _ in obs]
     rank_from_top = n - rank + 1
     one_in_n = round(n / rank_from_top) if rank_from_top else n
     percentile = round(rank / n * 100, 1)
@@ -231,6 +232,8 @@ def normal_check(req: NormalCheckRequest):
         "percentile": percentile,
         "one_in_n_years": one_in_n,
         "baseline_years": n,
+        "baseline_first_year": min(obs_years),
+        "baseline_last_year": max(obs_years),
         "verdict": verdict, "emoji": emoji,
         "cached": cached,
         "data_source": "NASA POWER (MERRA-2) monthly T2M, real observations",
@@ -291,6 +294,8 @@ def danger_days(req: DangerDaysRequest):
         "place": req.place, "lat": req.lat, "lon": req.lon,
         "threshold_c": req.threshold_c,
         "cached": cached,
+        "first_year": years[0] if years else None,
+        "last_year": years[-1] if years else None,
         "per_year": {str(y): per_year.get(y, 0) for y in years},
         "decades": decade_bars,
         "first_decade_avg": first_avg,
