@@ -182,10 +182,106 @@ def detect_anomalies(annual: dict, trend: dict, sigma: float = 2.0) -> list:
     return sorted(out, key=lambda d: abs(d["anomaly"]), reverse=True)
 
 
+MONTH_NAMES = ["", "January", "February", "March", "April", "May", "June",
+               "July", "August", "September", "October", "November", "December"]
+
+
+def _monthly_climatology(monthly: dict, years: set) -> dict:
+    """Mean value per calendar month (1..12) over the given years.
+    Months with fewer than 5 observations are dropped."""
+    by: dict[int, list] = {}
+    for ym, v in monthly.items():
+        if v is None or v < -900:
+            continue
+        ymi = int(ym)
+        y, m = ymi // 100, ymi % 100
+        if y in years and 1 <= m <= 12:
+            by.setdefault(m, []).append(v)
+    return {m: sum(v) / len(v) for m, v in by.items() if len(v) >= 5}
+
+
+def _month_shift(a: int, b: int) -> int:
+    """Signed shift in months from month a to month b, wrapped to -6..+6."""
+    d = (b - a) % 12
+    return d - 12 if d > 6 else d
+
+
+def detect_season_shift(t2m_monthly: dict, prec_monthly: dict):
+    """Season Shift Detective: compare the first 10 years of the record with
+    the last 10 years — hottest month, wettest month, and the warming of the
+    location's own 'summer core' (its 3 consecutive warmest months, defined
+    on the early period so southern-hemisphere seasons work too).
+
+    Deterministic arithmetic on the same NASA POWER monthly values used by
+    the trend analysis. Returns None when the record is too short or a
+    period lacks full monthly coverage — never invented numbers.
+    """
+    years = sorted({int(str(ym)[:4]) for ym, v in t2m_monthly.items()
+                    if v is not None and v > -900})
+    if len(years) < 20:
+        return None
+    early_years, late_years = years[:10], years[-10:]
+    et = _monthly_climatology(t2m_monthly, set(early_years))
+    lt = _monthly_climatology(t2m_monthly, set(late_years))
+    ep = _monthly_climatology(prec_monthly, set(early_years))
+    lp = _monthly_climatology(prec_monthly, set(late_years))
+    if len(et) < 12 or len(lt) < 12 or len(ep) < 12 or len(lp) < 12:
+        return None
+
+    def _peak(clim):
+        return max(clim, key=lambda m: clim[m])
+
+    eh, lh = _peak(et), _peak(lt)
+    ew, lw = _peak(ep), _peak(lp)
+    # Summer core: the 3 consecutive months (circular, so Dec-Jan-Feb counts)
+    # with the highest mean temperature in the EARLY period.
+    best_start, best_mean = None, None
+    for s in range(1, 13):
+        window = [((s - 1 + k) % 12) + 1 for k in range(3)]
+        mean = sum(et[m] for m in window) / 3
+        if best_mean is None or mean > best_mean:
+            best_mean, best_start = mean, s
+    window = [((best_start - 1 + k) % 12) + 1 for k in range(3)]
+    early_summer = sum(et[m] for m in window) / 3
+    late_summer = sum(lt[m] for m in window) / 3
+    return {
+        "early_period": [early_years[0], early_years[-1]],
+        "late_period": [late_years[0], late_years[-1]],
+        "hottest_month": {
+            "early": {"month": eh, "name": MONTH_NAMES[eh],
+                      "mean_c": round(et[eh], 2)},
+            "late": {"month": lh, "name": MONTH_NAMES[lh],
+                     "mean_c": round(lt[lh], 2)},
+            "shift_months": _month_shift(eh, lh),
+        },
+        "wettest_month": {
+            "early": {"month": ew, "name": MONTH_NAMES[ew],
+                      "mean_mm_day": round(ep[ew], 3)},
+            "late": {"month": lw, "name": MONTH_NAMES[lw],
+                     "mean_mm_day": round(lp[lw], 3)},
+            "shift_months": _month_shift(ew, lw),
+        },
+        "summer_window": {
+            "months": window,
+            "label": f"{MONTH_NAMES[window[0]][:3]}–{MONTH_NAMES[window[2]][:3]}",
+            "early_mean_c": round(early_summer, 2),
+            "late_mean_c": round(late_summer, 2),
+            "change_c": round(late_summer - early_summer, 2),
+        },
+        "method": "Monthly climatologies (NASA POWER T2M + PRECTOTCORR) for the "
+                  "first 10 vs last 10 years of the record; summer core = the "
+                  "early period's 3 consecutive warmest months.",
+    }
+
+
 def heuristic_report(place: str, lat: float, lon: float,
                      t_trend: dict, p_trend: dict,
-                     t_anom: list, p_anom: list) -> str:
-    """Plain-language detective report from real statistics. Provider: heuristic."""
+                     t_anom: list, p_anom: list, lang: str = "en") -> str:
+    """Plain-language detective report from real statistics. Provider: heuristic.
+    lang: "en" (default) or "ur" (Roman Urdu, same statistics)."""
+    if lang == "ur":
+        return heuristic_report_ur(place, lat, lon, t_trend, p_trend,
+                                   t_anom, p_anom)
     lines = [f"DETECTIVE REPORT — {place} ({lat:.2f}, {lon:.2f})",
              f"Data: NASA POWER (MERRA-2), {t_trend.get('first_year')}-{t_trend.get('last_year')} "
              f"({t_trend.get('n')} years of monthly observations).",
@@ -236,6 +332,76 @@ def heuristic_report(place: str, lat: float, lon: float,
     return "\n".join(lines)
 
 
+# Roman Urdu variants — hand-written templates, filled ONLY with the same
+# computed statistics as the English report. No new numbers, ever.
+_OPENINGS_UR = [
+    "Case khul gaya. Satellite record jhoot nahi bolta — dekhtay hain ye kya kehta hai.",
+    "Desk par naya case aya hai. Chalees saal ka asman, ek ek pixel parh kar samjhaya gaya hai.",
+    "File purani thi magar number taaza thay. Ye raha saboot jo kehta hai.",
+    "Ek aur jagah, darjon ki ek aur kahani. Jasoosi ka kaam shuru hota hai.",
+]
+_CLOSERS_UR = [
+    "Case ki surat: saboot darj ho gaya. Mausam apni ungliyon ke nishan peeche chor raha tha.",
+    "Kahani yahan khatam hoti hai — magar rujhan chalta rehta hai. File band, jasoos hazir.",
+    "Data mein koi bahana baqi nahi raha. Faisla upar diye gaye numberon par khara hai.",
+]
+
+
+def heuristic_report_ur(place: str, lat: float, lon: float,
+                        t_trend: dict, p_trend: dict,
+                        t_anom: list, p_anom: list) -> str:
+    """Roman Urdu detective report — same statistics as heuristic_report(),
+    hand-written Roman Urdu templates. Provider: heuristic."""
+    lines = [f"JASOOSI REPORT — {place} ({lat:.2f}, {lon:.2f})",
+             f"Data: NASA POWER (MERRA-2), {t_trend.get('first_year')}-{t_trend.get('last_year')} "
+             f"({t_trend.get('n')} saal ke mahana mashahidat).",
+             "",
+             _variant(place, _OPENINGS_UR), ""]
+    # Temperature verdict
+    s = t_trend["slope_per_decade"]
+    if abs(s) < 0.05:
+        lines.append(f"HARARAT: Koi wazeh rujhan nahi ({s:+.2f} °C/dahayi, R²={t_trend['r2']:.2f}). "
+                     "Signal seedha hai — yahan report karne ko kuch nahi, jasoos.")
+    else:
+        direction = "GARMI barh rahi hai" if s > 0 else "THAND barh rahi hai"
+        strength = "mazboot" if t_trend["r2"] > 0.5 else "darmiyani" if t_trend["r2"] > 0.25 else "kamzor magar maujood"
+        lines.append(f"HARARAT: {direction} — har dahayi mein {s:+.2f} °C "
+                     f"({strength} signal, R²={t_trend['r2']:.2f}). "
+                     f"{t_trend['n']} saalon mein ye takreeban {s * t_trend['n'] / 10:+.1f} °C ban jata hai.")
+    # Trend confidence: 95% CI + p-value
+    ci = t_trend.get("slope_ci95_per_decade")
+    pv = t_trend.get("p_value")
+    if ci and pv is not None:
+        verdict = "α=0.05 par shumariati tor par AHEM hai" if t_trend.get("significant_95") else "α=0.05 par shumariati tor par ahem NAHI hai"
+        lines.append(f"YQEEEN: 95% CI [{ci[0]:+.2f}, {ci[1]:+.2f}] °C/dahayi, "
+                     f"p={pv:.4f} — {verdict}.")
+    # Precipitation verdict
+    ps = p_trend["slope_per_decade"]
+    if abs(ps) < 0.02:
+        lines.append(f"BARISH: Mustahkam ({ps:+.3f} mm/day per dahayi).")
+    else:
+        d = "zyada barish wali" if ps > 0 else "khushk"
+        lines.append(f"BARISH: Ye jagah {d} hoti ja rahi hai ({ps:+.3f} mm/day per dahayi, R²={p_trend['r2']:.2f}).")
+    # Anomalies
+    if t_anom:
+        top = t_anom[0]
+        lines.append(f"SAB SE BARA SABOOT: {top['year']} sab se alag khara hai — "
+                     f"trend line se {top['anomaly']:+.2f} °C door "
+                     f"(salana ausat {top['value']} °C). Us saal kya hua tha, ye parhna banta hai.")
+    if p_anom:
+        top = p_anom[0]
+        lines.append(f"BARISH KA GHER MAMOOLI SAAL: {top['year']} (trend se {top['anomaly']:+.2f} mm/day door).")
+    if not t_anom and not p_anom:
+        lines.append("Koi ghair mamooli saal nahi mila — yahan tabdeeli aahista hai, achanak nahi.")
+    lines.append("")
+    lines.append(_variant(place + "|closer", _CLOSERS_UR))
+    lines.append("")
+    lines.append("TAREEQA: NASA POWER mahana data par least-squares trend (95% confidence interval "
+                 "aur p-value ke sath, Student-t, khalis Python) + ±2σ anomaly scan. "
+                 "Ye paishgoi nahi hai — jo guzar chuka hai, us ki parhai hai.")
+    return "\n".join(lines)
+
+
 def llm_report(prompt: str) -> tuple[str, str]:
     """Free-tier LLM narrative. Returns (narrative, provider_label).
 
@@ -255,8 +421,10 @@ def llm_report(prompt: str) -> tuple[str, str]:
     return text, label
 
 
-def build_report(place, lat, lon, t_trend, p_trend, t_anom, p_anom) -> dict:
-    stats_prompt = heuristic_report(place, lat, lon, t_trend, p_trend, t_anom, p_anom)
+def build_report(place, lat, lon, t_trend, p_trend, t_anom, p_anom,
+                 lang: str = "en") -> dict:
+    stats_prompt = heuristic_report(place, lat, lon, t_trend, p_trend, t_anom, p_anom,
+                                    lang=lang)
     provider = "heuristic"
     narrative = stats_prompt
     if AI_PROVIDER != "heuristic":
