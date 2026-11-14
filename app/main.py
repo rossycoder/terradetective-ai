@@ -13,7 +13,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .nasa_power import fetch_monthly, fetch_daily_tmax, cache_stats
-from .trend_ai import annual_means, linear_trend, detect_anomalies, build_report, AI_PROVIDER
+from .trend_ai import (annual_means, linear_trend, detect_anomalies, build_report,
+                       detect_season_shift, AI_PROVIDER)
 from .twin_cities import find_twin
 from . import free_llm
 
@@ -44,6 +45,7 @@ class InvestigateRequest(BaseModel):
     lon: float = 67.01
     start_year: int = 1985
     end_year: int = 2025
+    lang: str = "en"  # heuristic narrative language: "en" | "ur" (Roman Urdu)
 
 
 @app.get("/")
@@ -74,7 +76,10 @@ def investigate(req: InvestigateRequest):
     p_trend = linear_trend(p_ann)
     t_anom = detect_anomalies(t_ann, t_trend)
     p_anom = detect_anomalies(p_ann, p_trend)
-    report = build_report(req.place, req.lat, req.lon, t_trend, p_trend, t_anom, p_anom)
+    season_shift = detect_season_shift(raw["t2m"], raw["prec"])
+    lang = req.lang if req.lang in ("en", "ur") else "en"
+    report = build_report(req.place, req.lat, req.lon, t_trend, p_trend, t_anom, p_anom,
+                          lang=lang)
     return {
         "place": req.place, "lat": req.lat, "lon": req.lon,
         "elevation_m": raw["elevation_m"],
@@ -90,6 +95,7 @@ def investigate(req: InvestigateRequest):
             "trend": _round_trend(p_trend),
             "anomalies": p_anom,
         },
+        "season_shift": season_shift,
         "report": report,
     }
 
