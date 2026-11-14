@@ -40,7 +40,11 @@ get their own evidence.
 | 6 | 🗺️ Map picker | Click anywhere on the world map to investigate that exact spot |
 | 7 | 🔗 Share links | Every case gets a shareable URL (`?place=&lat=&lon=`) that re-runs the analysis on open |
 | 8 | ⚡ Smart caching | NASA responses cached server-side (24 h TTL); popular cities pre-warmed so first loads are fast |
-| 9 | ⬇️ Case-file download | Export the full investigation as a Markdown dossier |
+| 9 | ⬇️ Case-file download | Export the full investigation as a Markdown dossier (now incl. the season-shift findings) |
+| 10 | 🍂 Season Shift Detective | First 10 years vs last 10 years of the record: hottest month, wettest month, and how much the place's own "summer core" (its 3 consecutive warmest months — southern hemisphere works too) has warmed |
+| 11 | ⚖️ Compare Two Places | Run the same investigation on two places in parallel — warming rate with 95% CI, anomaly count, season shift and danger-days change, side by side |
+| 12 | 🛰️ NASA GIBS satellite layer | Switch the map to real MODIS Terra true-color imagery from NASA GIBS (WMTS) — look at the Earth from space while picking a case |
+| 13 | 🇵🇰 Roman Urdu narrative | The heuristic detective report in Roman Urdu (EN/Urdu toggle) — hand-written templates filled with exactly the same statistics |
 
 ## Data honesty
 
@@ -72,15 +76,16 @@ browser UI (static/index.html) — Leaflet map picker, charts, share links
 FastAPI (app/main.py)
    ├─ app/nasa_power.py  → NASA POWER API (live, no key) + 24h TTL cache + popular-city pre-warm
    ├─ app/trend_ai.py    → linear trend (°C/decade, 95% CI, p-value, R²)
-   │                        ±2σ anomaly scan
-   │                        detective narrative (heuristic | LLM, provider-labeled)
+   │                        ±2σ anomaly scan · season-shift climatology compare
+   │                        (first vs last decade) · detective narrative
+   │                        (heuristic EN / Roman Urdu | LLM, provider-labeled)
    └─ app/twin_cities.py → 2050 projection matched against reference-city climatology
 ```
 
 ## API
 
 - `GET /api/status` — service info, AI provider, cache stats, key requirements
-- `POST /api/investigate` — full analysis; needs ≥10 years of data; returns `cached: true/false`
+- `POST /api/investigate` — full analysis; needs ≥10 years of data; returns `cached: true/false`, a `season_shift` section (first-vs-last-decade season comparison, `null` when the record is too short), and accepts `lang: "en" | "ur"` for the heuristic narrative language
 - `POST /api/twin-city` — Future Twin City reveal
 - `POST /api/normal-check` — Was This Normal? verdict (explicit or auto-picked extreme month)
 - `POST /api/danger-days` — dangerous-heat-day counts per decade (daily T2M_MAX)
@@ -104,16 +109,20 @@ FastAPI (app/main.py)
 | Heuristic detective narrative | ✅ real, labeled provider |
 | LLM narrative upgrade | optional, env-gated, labeled |
 | Map picker, share links, caching | ✅ real |
+| Season Shift Detective (first vs last decade) | ✅ real, tested (Karachi + Sydney) |
+| Compare Two Places (parallel investigations) | ✅ real (reuses `/api/investigate` + `/api/danger-days`) |
+| NASA GIBS imagery layer (MODIS Terra, fixed date) | ✅ real, tile endpoint verified |
+| Roman Urdu heuristic narrative | ✅ real, same statistics as English (verified) |
 | Preset locations | real coordinates |
 
 ## Roadmap (honest next steps)
 
 - [x] Share links (encode lat/lon in URL) — done
-- [x] Compare-two-places mode — done as **Future Twin City**
+- [x] Compare-two-places mode — **Future Twin City**, and a true side-by-side Compare Two Places (2026-11-13)
 - [ ] PDF detective report export (Markdown case file already ships)
-- [ ] Roman-Urdu narrative option
-- [ ] Season-shift detection (earlier summers, changing rainfall patterns)
-- [ ] NASA GIBS satellite imagery layer
+- [x] Roman-Urdu narrative option — done 2026-11-13 (heuristic path, EN/Urdu toggle)
+- [x] Season-shift detection (hottest/wettest month + summer-core warming, first vs last decade) — done 2026-11-13
+- [x] NASA GIBS satellite imagery layer — done 2026-11-13
 
 ## License
 
