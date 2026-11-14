@@ -216,17 +216,19 @@ function initMap(){
     _map=L.map('map',{scrollWheelZoom:false}).setView([24.86,67.01],3);
     _map.on('focus',()=>_map.scrollWheelZoom.enable());
     _map.on('blur',()=>_map.scrollWheelZoom.disable());
-    const darkBase=L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-      {maxZoom:18,attribution:'© OpenStreetMap contributors © CARTO'});
+    /* Default base map: OpenStreetMap standard tiles (free, no key needed).
+       CARTO dark tiles were dropped — they now show "API KEY REQUIRED". */
+    const darkBase=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      {maxZoom:18,attribution:'© OpenStreetMap contributors'});
     /* NASA GIBS — real MODIS Terra true-color satellite imagery via the GIBS
        WMTS endpoint, fixed recent date (GIBS serves its archive for that
-       date). Alternative base layer in the layer control; dark map stays
+       date). Alternative base layer in the layer control; street map stays
        the default. Level9 tiles are native to zoom 9, upscaled beyond. */
     const GIBS_DATE='2026-11-10';
     const gibsBase=L.tileLayer('https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_CorrectedReflectance_TrueColor/default/'+GIBS_DATE+'/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg',
       {maxZoom:18,maxNativeZoom:9,attribution:'Imagery © NASA GIBS / EOSDIS (MODIS Terra, '+GIBS_DATE+')'});
     darkBase.addTo(_map);
-    L.control.layers({'🌑 Dark map':darkBase,'🛰️ NASA satellite (GIBS)':gibsBase},null,{position:'topright'}).addTo(_map);
+    L.control.layers({'🗺️ Street map':darkBase,'🛰️ NASA satellite (GIBS)':gibsBase},null,{position:'topright'}).addTo(_map);
     _map.on('click',e=>{
       const la=+e.latlng.lat.toFixed(2),lo=+e.latlng.lng.toFixed(2);
       if(_marker)_marker.setLatLng(e.latlng);else _marker=L.marker(e.latlng).addTo(_map);
