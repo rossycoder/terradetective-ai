@@ -125,6 +125,13 @@ select option{background:#0a0f1e}
 .verdict-grid .vg b{font-family:'Space Grotesk';font-size:17px}
 .verdict-grid .vg span{display:block;font-size:11px;color:var(--dim);margin-top:2px}
 canvas#dangerchart{width:100%;height:220px;display:block}
+/* compare table + narrative language toggle */
+.cmp{width:100%;border-collapse:collapse;font-size:13.5px}
+.cmp th,.cmp td{padding:10px 12px;border:1px solid var(--line);text-align:left;vertical-align:top}
+.cmp th{font-family:'Space Grotesk';background:rgba(255,255,255,.04)}
+.cmp td:first-child{color:var(--dim);white-space:nowrap}
+.ltgl{opacity:.7}
+.ltgl.on{opacity:1;outline:2px solid #fff;outline-offset:1px}
 #map{height:250px;border-radius:14px;margin-top:12px;border:1px solid var(--line);z-index:1}
 .maphint{font-size:11.5px;color:var(--faint);margin-top:6px}
 @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
@@ -155,7 +162,21 @@ canvas#dangerchart{width:100%;height:220px;display:block}
     <button class="btn2" onclick="sampleCase()" title="Run a ready-made investigation of Karachi in one click — see everything the tool does">✨ Try a sample case — Karachi</button>
     <button class="btn2" id="sharebtn" onclick="shareCase()" title="Copy a link to this exact case">🔗 Share this case</button>
     <div id="map"></div>
-    <div class="maphint">🗺️ No city in mind? Click anywhere on the map to drop a pin and investigate that spot.</div>
+    <div class="maphint">🗺️ No city in mind? Click anywhere on the map to drop a pin and investigate that spot. Use the layer button (top-right of the map) to switch to real NASA GIBS satellite imagery.</div>
+  </div>
+
+  <div class="card">
+    <h2><span class="n">⚖</span>Compare two places — side by side</h2>
+    <p class="meta" style="margin-top:0">Place A is the case above (name + coordinates in step 1). Give Place B a rival location — the same investigation runs on both, with the same NASA data and the same method.</p>
+    <div class="grid2">
+      <div class="fld"><label>Place B name</label><input id="placeB" value="Sydney, Australia"></div>
+      <div class="coords">
+        <div class="fld"><label>Latitude B</label><input id="latB" type="number" step="0.01" value="-33.87"></div>
+        <div class="fld"><label>Longitude B</label><input id="lonB" type="number" step="0.01" value="151.21"></div>
+      </div>
+    </div>
+    <button class="btn2" id="cmpbtn" onclick="comparePlaces()">⚖️ Compare A vs B</button>
+    <div id="compare-out" style="margin-top:14px"></div>
   </div>
 
   <div id="stage"></div>
@@ -169,6 +190,7 @@ function toast(m,ok){const t=$('toast');t.textContent=m;t.classList.toggle('ok',
   t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),4200);}
 let lastCase=null; // last successful /api/investigate result — source of the downloadable case file
 let lastPlace='',lastLat=0,lastLon=0; // coordinates of the last investigation
+let _narrLang='en'; // detective-report language: 'en' | 'ur' (Roman Urdu heuristic narrative)
 
 const PRESETS=[
   ['Karachi, Pakistan',24.86,67.01],['Thar Desert, Pakistan',25.2,69.5],
@@ -194,8 +216,17 @@ function initMap(){
     _map=L.map('map',{scrollWheelZoom:false}).setView([24.86,67.01],3);
     _map.on('focus',()=>_map.scrollWheelZoom.enable());
     _map.on('blur',()=>_map.scrollWheelZoom.disable());
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-      {maxZoom:18,attribution:'© OpenStreetMap contributors © CARTO'}).addTo(_map);
+    const darkBase=L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+      {maxZoom:18,attribution:'© OpenStreetMap contributors © CARTO'});
+    /* NASA GIBS — real MODIS Terra true-color satellite imagery via the GIBS
+       WMTS endpoint, fixed recent date (GIBS serves its archive for that
+       date). Alternative base layer in the layer control; dark map stays
+       the default. Level9 tiles are native to zoom 9, upscaled beyond. */
+    const GIBS_DATE='2026-11-10';
+    const gibsBase=L.tileLayer('https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/MODIS_Terra_CorrectedReflectance_TrueColor/default/'+GIBS_DATE+'/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg',
+      {maxZoom:18,maxNativeZoom:9,attribution:'Imagery © NASA GIBS / EOSDIS (MODIS Terra, '+GIBS_DATE+')'});
+    darkBase.addTo(_map);
+    L.control.layers({'🌑 Dark map':darkBase,'🛰️ NASA satellite (GIBS)':gibsBase},null,{position:'topright'}).addTo(_map);
     _map.on('click',e=>{
       const la=+e.latlng.lat.toFixed(2),lo=+e.latlng.lng.toFixed(2);
       if(_marker)_marker.setLatLng(e.latlng);else _marker=L.marker(e.latlng).addTo(_map);
@@ -262,7 +293,7 @@ async function investigate(){
   $('stage').innerHTML=`<div class="loading"><div class="spinner"></div><b>Gathering satellite evidence…</b><div class="steps">querying NASA POWER · 40 years of monthly data · computing trend & anomalies</div></div>`;
   try{
     const r=await fetch('/api/investigate',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({place,lat,lon})});
+      body:JSON.stringify({place,lat,lon,lang:_narrLang})});
     if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||('server '+r.status));}
     const d=await r.json();
     lastCase=d; // remember for the case-file download
@@ -293,6 +324,18 @@ async function investigate(){
       <div class="provitem"><b>Reading, not forecast</b><span>this trend describes the past — it does not predict the future</span></div>
     </div>`;
     const yrOpts=yrs.slice().reverse().map(y=>`<option value="${y}">${y}</option>`).join('');
+    // Season Shift Detective card — rendered only when the backend could
+    // honestly compare the first vs last decade (null = not enough data)
+    const ss=d.season_shift;
+    const shiftTxt=v=>v===0?'unchanged':`shifted ${v>0?'+':''}${v} month${Math.abs(v)===1?'':'s'}`;
+    const seasonCard=ss?`<div class="card"><h2><span class="n">7</span>Season Shift Detective — are the seasons moving?</h2>
+      <div class="verdict-grid">
+        <div class="vg"><b>${esc(ss.hottest_month.early.name)} → ${esc(ss.hottest_month.late.name)}</b><span>hottest month · ${shiftTxt(ss.hottest_month.shift_months)}</span></div>
+        <div class="vg"><b>${esc(ss.wettest_month.early.name)} → ${esc(ss.wettest_month.late.name)}</b><span>wettest month · ${shiftTxt(ss.wettest_month.shift_months)}</span></div>
+        <div class="vg"><b>${Number(ss.summer_window.change_c)>=0?'+':''}${Number(ss.summer_window.change_c).toFixed(2)}°C</b><span>summer core (${esc(ss.summer_window.label)}) warming</span></div>
+      </div>
+      <div class="meta">Comparing ${ss.early_period[0]}–${ss.early_period[1]} vs ${ss.late_period[0]}–${ss.late_period[1]} · hottest month ${esc(ss.hottest_month.early.name)} (${Number(ss.hottest_month.early.mean_c).toFixed(1)}°C) → ${esc(ss.hottest_month.late.name)} (${Number(ss.hottest_month.late.mean_c).toFixed(1)}°C) · wettest month ${esc(ss.wettest_month.early.name)} (${Number(ss.wettest_month.early.mean_mm_day).toFixed(1)} mm/day) → ${esc(ss.wettest_month.late.name)} (${Number(ss.wettest_month.late.mean_mm_day).toFixed(1)} mm/day) · summer core ${esc(ss.summer_window.label)}: ${Number(ss.summer_window.early_mean_c).toFixed(1)}°C → ${Number(ss.summer_window.late_mean_c).toFixed(1)}°C · ${esc(ss.method)}</div>
+    </div>`:`<div class="card"><h2><span class="n">7</span>Season Shift Detective</h2><p class="meta" style="margin-top:0">This record is too short to compare its first and last decades honestly — so no season verdict is shown rather than an invented one.</p></div>`;
     $('stage').innerHTML=`<div id="results" style="display:block">
       <div class="stats">
         <div class="stat ${cls}" style="animation-delay:.02s"><div class="v">${per>=0?'+':''}${per.toFixed(2)}°</div><div class="l">warming per decade</div></div>
@@ -308,7 +351,7 @@ async function investigate(){
         <div class="meta">${cacheTxt}${esc(d.place)} · ${yrs[0]}–${yrs[yrs.length-1]} · ${trendTxt} · anomalies: ${esc(anomTxt)}</div>
         ${provPanel}
       </div>
-      <div class="card"><h2 class="dl-head"><span><span class="n">3</span>Detective report</span><span><button class="dlbtn" id="narrbtn" onclick="narrateAI()" title="Let a real AI narrate this report (free tier)">✨ Narrate with AI</button> <button class="dlbtn" id="dlbtn" onclick="downloadCase()" title="Download this investigation as a Markdown case file">⬇️ Download Case File</button></span></h2>
+      <div class="card"><h2 class="dl-head"><span><span class="n">3</span>Detective report</span><span><button class="dlbtn ltgl${_narrLang==='en'?' on':''}" onclick="setLang('en')" title="Detective report in English">EN</button> <button class="dlbtn ltgl${_narrLang==='ur'?' on':''}" onclick="setLang('ur')" title="Detective report in Roman Urdu — same numbers, Urdu wording">Roman Urdu</button> <button class="dlbtn" id="narrbtn" onclick="narrateAI()" title="Let a real AI narrate this report (free tier)">✨ Narrate with AI</button> <button class="dlbtn" id="dlbtn" onclick="downloadCase()" title="Download this investigation as a Markdown case file">⬇️ Download Case File</button></span></h2>
         <div class="dossier"><pre id="dossierpre">${esc(d.report.narrative)}</pre>
         <div><span class="prov" id="provbadge">narrated by ${esc(d.report.provider)}</span></div></div>
         <div class="meta">Source: ${esc(d.data_source)} · elevation ${d.elevation_m??'—'} m · precipitation trend ${(d.precipitation.trend.slope_per_decade??0)>=0?'+':''}${(d.precipitation.trend.slope_per_decade??0).toFixed(3)} mm/day per decade</div>
@@ -329,7 +372,7 @@ async function investigate(){
       <div class="card"><h2><span class="n">6</span>Danger Days — the body count</h2>
         <div id="danger-out"><p class="meta" style="margin-top:0">How many days per year crossed 35°C here? The metric people actually feel — counted from real daily NASA data, decade by decade.</p>
         <button class="btn2" onclick="dangerDays()">☠️ Count dangerous heat days</button></div>
-      </div></div>`;
+      </div>${seasonCard}</div>`;
     drawChart(yrs,vals,anoms);
     $('stage').scrollIntoView({behavior:'smooth'});
   }catch(e){$('stage').innerHTML='';toast('Investigation failed: '+e.message);}
@@ -374,6 +417,15 @@ function buildCaseFile(d){
   const ps=ptr.slope_per_decade??0;
   L.push(`- **Precipitation trend:** ${ps>=0?'+':''}${Number(ps).toFixed(3)} mm/day per decade${panoms.length?` (${panoms.length} anomaly year${panoms.length>1?'s':''}: ${panoms.map(a=>a.year).join(', ')})`:''}`);
   L.push('');
+  const ssf=d.season_shift;
+  if(ssf){
+    L.push('## 🍂 SEASON SHIFT — FIRST 10 YEARS vs LAST 10 YEARS');
+    L.push(`- **Periods compared:** ${ssf.early_period[0]}–${ssf.early_period[1]} vs ${ssf.late_period[0]}–${ssf.late_period[1]}`);
+    L.push(`- **Hottest month:** ${ssf.hottest_month.early.name} (${Number(ssf.hottest_month.early.mean_c).toFixed(1)}°C) → ${ssf.hottest_month.late.name} (${Number(ssf.hottest_month.late.mean_c).toFixed(1)}°C)${ssf.hottest_month.shift_months?` — shifted ${ssf.hottest_month.shift_months>0?'+':''}${ssf.hottest_month.shift_months} month(s)`:''}`);
+    L.push(`- **Wettest month:** ${ssf.wettest_month.early.name} (${Number(ssf.wettest_month.early.mean_mm_day).toFixed(2)} mm/day) → ${ssf.wettest_month.late.name} (${Number(ssf.wettest_month.late.mean_mm_day).toFixed(2)} mm/day)${ssf.wettest_month.shift_months?` — shifted ${ssf.wettest_month.shift_months>0?'+':''}${ssf.wettest_month.shift_months} month(s)`:''}`);
+    L.push(`- **Summer core (${ssf.summer_window.label}):** ${Number(ssf.summer_window.early_mean_c).toFixed(1)}°C → ${Number(ssf.summer_window.late_mean_c).toFixed(1)}°C (${Number(ssf.summer_window.change_c)>=0?'+':''}${Number(ssf.summer_window.change_c).toFixed(2)}°C)`);
+    L.push('');
+  }
   if(yrs.length>=5){
     // least-squares fit — same math the on-screen chart uses
     const n=yrs.length;let sx=0,sy=0;
@@ -416,6 +468,56 @@ function downloadCase(){
     setTimeout(()=>URL.revokeObjectURL(url),2000);
     toast('✅ Case file downloaded — check your downloads folder.',true);
   }catch(e){toast('Download failed: '+e.message);}
+}
+
+/* narrative language toggle: re-runs the current case so the heuristic
+   detective report comes back in the chosen language (same statistics) */
+function setLang(l){
+  if(l===_narrLang&&lastCase)return;
+  _narrLang=l;
+  if(lastCase)investigate();
+}
+
+/* --- Compare Two Places: same investigation, run on A and B in parallel --- */
+async function _inv(place,lat,lon){
+  const r=await fetch('/api/investigate',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({place,lat,lon})});
+  if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||('server '+r.status));}
+  return r.json();
+}
+async function _danger(place,lat,lon){
+  const r=await fetch('/api/danger-days',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({place,lat,lon,threshold_c:35})});
+  if(!r.ok)throw new Error('danger-days '+r.status);
+  return r.json();
+}
+async function comparePlaces(){
+  const aPlace=$('place').value.trim(),aLat=parseFloat($('lat').value),aLon=parseFloat($('lon').value);
+  const bPlace=$('placeB').value.trim(),bLat=parseFloat($('latB').value),bLon=parseFloat($('lonB').value);
+  if(!aPlace||!bPlace||[aLat,aLon,bLat,bLon].some(v=>isNaN(v))){toast('Compare needs a name and valid coordinates for both places.');return;}
+  const out=$('compare-out'),btn=$('cmpbtn');btn.disabled=true;
+  out.innerHTML='<div class="loading" style="padding:28px"><div class="spinner" style="width:32px;height:32px"></div><b>Investigating both places…</b><div class="steps">two NASA POWER records · same method</div></div>';
+  try{
+    const [A,B]=await Promise.all([_inv(aPlace,aLat,aLon),_inv(bPlace,bLat,bLon)]);
+    const sgn=v=>`${v>=0?'+':''}${v.toFixed(2)}`;
+    const fmtT=d=>{const t=d.temperature.trend,ci=t.slope_ci95_per_decade;
+      return `${sgn(t.slope_per_decade)}°C/decade${Array.isArray(ci)?` <span style="color:var(--dim)">[95% CI ${sgn(ci[0])}, ${sgn(ci[1])}]</span>`:''}`;};
+    const ssLine=d=>{const s=d.season_shift;if(!s)return 'not enough data';
+      return `summer core ${esc(s.summer_window.label)} ${s.summer_window.change_c>=0?'+':''}${Number(s.summer_window.change_c).toFixed(2)}°C`;};
+    out.innerHTML=`<table class="cmp"><tr><th></th><th>${esc(A.place)}</th><th>${esc(B.place)}</th></tr>
+      <tr><td>🌡️ Warming rate</td><td>${fmtT(A)}</td><td>${fmtT(B)}</td></tr>
+      <tr><td>⚠️ Anomaly years</td><td>${(A.temperature.anomalies||[]).length}</td><td>${(B.temperature.anomalies||[]).length}</td></tr>
+      <tr><td>🍂 Season shift</td><td>${ssLine(A)}</td><td>${ssLine(B)}</td></tr>
+      <tr><td>☠️ Danger days &gt;35°C/yr</td><td><span id="cmpda">counting…</span></td><td><span id="cmpdb">counting…</span></td></tr>
+      </table>
+      <div class="meta">Same NASA POWER (MERRA-2) record and method for both — only the place differs. Danger days compare each place's first vs last decade.</div>`;
+    const fillD=(id,place,lat,lon)=>_danger(place,lat,lon)
+      .then(d=>{const el=$(id);if(el)el.textContent=`${d.first_decade_avg.toFixed(1)} → ${d.last_decade_avg.toFixed(1)} (${d.change_per_year>=0?'+':''}${d.change_per_year.toFixed(1)})`;})
+      .catch(()=>{const el=$(id);if(el)el.textContent='n/a';});
+    fillD('cmpda',aPlace,aLat,aLon);
+    fillD('cmpdb',bPlace,bLat,bLon);
+  }catch(e){out.innerHTML='';toast('Compare failed: '+e.message);}
+  btn.disabled=false;
 }
 
 async function narrateAI(){
